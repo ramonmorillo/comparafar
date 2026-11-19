@@ -10,10 +10,11 @@ import { ENGINE_VERSION } from "./engine.js";
 
 const KEY = "mielofarma:v1";
 const ROUTES = [
-  ["inicio", "Inicio", Inicio], ["paciente", "Paciente", PacientePage], ["calculadora", "Calculadora", CalculadoraPage], ["comparador", "Comparador", ComparadorPage],
+  ["plataforma", "Comparafar", null], ["inicio", "Inicio", Inicio], ["paciente", "Paciente", PacientePage], ["calculadora", "Calculadora", CalculadoraPage], ["comparador", "Comparador", ComparadorPage],
   ["esquemas", "Esquemas", EsquemasPage], ["precios", "Precios", PreciosPage], ["avanzadas", "Terapias avanzadas", AvanzadasPage], ["agenda", "Agenda", AgendaPage],
   ["panel", "Panel", PanelPage], ["informes", "Informes", InformesPage], ["auditoria", "Auditoría", AuditoriaPage], ["admin", "Administración", AdminPage],
 ];
+const MODULES = [{ id: "mieloma", name: "Mieloma múltiple", desc: "Calculadora individualizada, comparación farmacoeconómica de esquemas, precios, terapias avanzadas, agenda e informes.", status: "Activo · datos pendientes de validación" }];
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export function initialState() {
@@ -47,8 +48,21 @@ const load = () => {
     return { ...base, ...s, config: { ...base.config, ...s.config }, calc: { ...base.calc, ...s.calc }, cmp: { ...base.cmp, ...s.cmp }, adv: { ...base.adv, ...s.adv } };
   } catch (e) { return base; }
 };
-const routeFromHash = () => { const h = (window.location.hash || "").replace("#", ""); return ROUTES.some((r) => r[0] === h) ? h : "inicio"; };
+const routeFromHash = () => { const h = (window.location.hash || "").replace("#", ""); return ROUTES.some((r) => r[0] === h) ? h : "plataforma"; };
 
+function Plataforma() {
+  const { go } = React.useContext(AppCtx);
+  return (
+    <div className="page">
+      <div className="lead"><h1>Comparafar</h1><p>Plataforma de apoyo para Farmacia Hospitalaria, organizada en módulos por área clínica. Cada módulo tiene su propio motor de cálculo, sus datos y su estado de validación.</p></div>
+      <div className="tiles">
+        {MODULES.map((m) => <button key={m.id} className="tile" onClick={() => go("inicio")}><strong>{m.name}</strong><span>{m.desc}</span><span className="muted">{m.status}</span></button>)}
+        <div className="tile" style={{ cursor: "default", borderStyle: "dashed" }}><strong>Nuevos módulos</strong><span>Todavía no hay más módulos. Se añadirán a medida que se definan y validen.</span></div>
+      </div>
+      <Banner kind="info" title="Dónde se guardan los datos.">De momento, en el navegador de este equipo. No se comparten entre usuarios ni entre equipos, y se pierden si se borra la caché. Usa la copia de seguridad (Administración) hasta que haya base de datos compartida.</Banner>
+    </div>
+  );
+}
 function App() {
   const [S, setS] = useState(load);
   const [route, setRoute] = useState(routeFromHash);
@@ -79,14 +93,14 @@ function App() {
     } catch (e) { return { ok: false, text: "No se pudo leer el JSON: " + e.message }; }
   }, []);
   const ctx = { S, set, go, route, schemes, patient, resetAll, exportState, importState };
-  const Page = (ROUTES.find((r) => r[0] === route) || ROUTES[0])[2];
+  const Page = (ROUTES.find((r) => r[0] === route) || ROUTES[0])[2] || Plataforma;
   return (
     <AppCtx.Provider value={ctx}>
       <a href="#main" className="skip" onClick={(e) => { e.preventDefault(); const m = document.getElementById("main"); m && m.focus(); }}>Saltar al contenido</a>
       <div className="app">
         <aside className="side no-print">
-          <div className="brand"><span className="logo" aria-hidden="true">M</span><div><b>MieloFarma</b><span>Mieloma múltiple · Farmacia</span></div></div>
-          <nav aria-label="Principal">{ROUTES.map(([id, label]) => <a key={id} href={`#${id}`} className={route === id ? "on" : ""} aria-current={route === id ? "page" : undefined} onClick={(e) => { e.preventDefault(); go(id); }}>{label}</a>)}</nav>
+          <div className="brand"><span className="logo" aria-hidden="true">C</span><div><b>Comparafar</b><span>Farmacia Hospitalaria</span></div></div>
+          <nav aria-label="Principal"><a href="#plataforma" className={route === "plataforma" ? "on" : ""} aria-current={route === "plataforma" ? "page" : undefined} onClick={(e) => { e.preventDefault(); go("plataforma"); }}>Todos los módulos</a><div className="mod-h">Módulo · Mieloma múltiple</div>{ROUTES.filter((r) => r[0] !== "plataforma").map(([id, label]) => <a key={id} href={`#${id}`} className={route === id ? "on" : ""} aria-current={route === id ? "page" : undefined} onClick={(e) => { e.preventDefault(); go(id); }}>{label}</a>)}</nav>
           <div className="side-f">Motor v{ENGINE_VERSION}<br />Datos del Excel · sin verificar</div>
         </aside>
         <div className="main-w">

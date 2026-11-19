@@ -42,7 +42,7 @@ export function Inicio() {
   return (
     <div className="page">
       <div className="lead">
-        <h1>MieloFarma</h1>
+        <h1>Mieloma múltiple</h1>
         <p>Apoyo a la consulta de Farmacia Hospitalaria en mieloma múltiple. Parte de tu Excel de costes 2026: conserva sus esquemas y precios, corrige sus errores de cálculo y añade comparación, calendario e informes.</p>
       </div>
       <div className="search"><label htmlFor="q">Búsqueda rápida</label><input id="q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Esquema, fármaco, paciente o hallazgo (p. ej. «Isa-Kd», «lenalidomida», «REF-02»)" />

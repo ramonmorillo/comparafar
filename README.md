@@ -1,6 +1,6 @@
 # Comparafar
 
-Plataforma de apoyo para Farmacia Hospitalaria, organizada en módulos. Primer módulo: **mieloma múltiple** (antes «MieloFarma»).
+Plataforma de apoyo para Farmacia Hospitalaria, organizada en módulos. Primer módulo: **mieloma múltiple** (antes «MieloFarma»). La interfaz tiene una pantalla general («Todos los módulos») y un menú propio por módulo.
 
 > Estado: prototipo. Los datos de pacientes son ficticios; las pautas y los precios proceden del Excel «Mielola multiple costes 2026» y están **pendientes de validación**. Las comparaciones son económicas y no implican superioridad terapéutica ni recomendación clínica.
 
