@@ -211,6 +211,11 @@ create policy audit_select on public.audit_log for select to authenticated using
 
 -- 6) Permisos: sin acceso anónimo; sin borrados; historiales inmutables ------------------------
 revoke all on all tables in schema public from anon;
+-- Permisos explícitos (los proyectos nuevos de Supabase no los conceden por defecto a las tablas de public)
+grant usage on schema public to authenticated;
+grant select on public.profiles, public.catalog_items, public.price_history, public.schemes, public.scheme_versions, public.audit_log to authenticated;
+grant insert, update on public.catalog_items, public.schemes to authenticated;
+grant insert on public.price_history to authenticated;
 revoke delete on all tables in schema public from authenticated;
 revoke update on public.price_history, public.scheme_versions, public.audit_log from authenticated;
 revoke insert on public.scheme_versions, public.audit_log from authenticated;

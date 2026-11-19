@@ -1,14 +1,13 @@
 import { PGlite } from "@electric-sql/pglite"; import fs from "fs";
 const db = new PGlite();
 const stub = `
-create role anon nologin; create role authenticated nologin;
+create role anon nologin; create role authenticated nologin; create role supabase_auth_admin nologin;
 create schema auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
 create function auth.jwt() returns jsonb language sql stable as $$ select jsonb_build_object('email', current_setting('request.jwt.claim.email', true)) $$;
 create publication supabase_realtime;
-grant usage on schema public, auth to anon, authenticated;
-alter default privileges in schema public grant all on tables to anon, authenticated;
+grant usage on schema auth to anon, authenticated; grant usage on schema public to anon;
 `;
 await db.exec(stub);
 await db.exec(fs.readFileSync("/home/claude/comparafar/core/supabase/001_schema.sql","utf8"));
