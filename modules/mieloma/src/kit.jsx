@@ -26,7 +26,7 @@ export function schemeChips(s) {
   const out = [];
   if (s.archived) out.push(<Chip key="a" kind="archivado" />);
   if (s.status === "verificado") out.push(<Chip key="v" kind="verificado" title={s.verified ? `${s.verified.source} · ${s.verified.date} · ${s.verified.reviewer}` : ""} />);
-  else if (s.custom) out.push(<Chip key="b" kind="borrador" />);
+  else if (s.custom || s.user) out.push(<Chip key="b" kind="borrador" />);
   else { out.push(<Chip key="i" kind="importado" />); out.push(<Chip key="p" kind="pendiente" />); }
   if (s.fueraFicha) out.push(<Chip key="f" kind="fuera" />);
   if (s.noFinanciada) out.push(<Chip key="n" kind="nofin" />);
