@@ -220,6 +220,8 @@ grant update (role, active, full_name) on public.profiles to authenticated; -- l
 revoke execute on function public.app_role() from public, anon;
 grant execute on function public.app_role() to authenticated;
 revoke execute on function public.handle_new_user(), public.trg_schemes_guard(), public.trg_catalog_guard(), public.trg_audit() from public, anon, authenticated;
+-- Supabase Auth ejecuta este disparador al crear un usuario: necesita permiso (si no, no se puede crear el usuario).
+grant execute on function public.handle_new_user() to supabase_auth_admin;
 
 -- 7) Tiempo real para ver los cambios de otras personas ---------------------------------------
 do $$ begin
