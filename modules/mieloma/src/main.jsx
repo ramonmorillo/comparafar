@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useCloudSync, LoginGate, CloudBar } from "./CloudSync.jsx";
 import { createRoot } from "react-dom/client";
 import { CATALOG_INITIAL, SCHEMES_ALL, PATIENTS_DEMO, CONFIG_DEFAULT, BSAB_PRESETS } from "./data.js";
 import { addDays } from "./engine.js";
@@ -67,6 +68,7 @@ function App() {
   const [S, setS] = useState(load);
   const [route, setRoute] = useState(routeFromHash);
   const [persist, setPersist] = useState(true);
+  const cs = useCloudSync(S, setS);
   const first = useRef(true);
   useEffect(() => { const h = () => setRoute(routeFromHash()); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
   useEffect(() => {
@@ -105,7 +107,8 @@ function App() {
         </aside>
         <div className="main-w">
           <div className="demo-bar no-print" role="status">Datos de demostración: pacientes ficticios, pautas y precios importados del Excel <b>pendientes de validación</b>. No usar como información clínica verificada.{!persist && " · Este entorno no permite guardar entre sesiones."}</div>
-          <main id="main" tabIndex={-1}><Page /></main>
+          <CloudBar cs={cs} />
+          <main id="main" tabIndex={-1}>{cs.status === "login" ? <LoginGate cs={cs} /> : cs.status === "boot" ? null : <Page />}</main>
         </div>
       </div>
     </AppCtx.Provider>
