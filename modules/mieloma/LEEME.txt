@@ -1,0 +1,4 @@
+MieloFarma - copia local
+1) Abre build/index.html en Chrome o Edge (doble clic). Necesita internet solo para cargar React (cdnjs) y las fuentes; los datos se guardan en el navegador (localStorage).
+2) Codigo fuente: src/ (motor en engine.js, datos importados del Excel en data.js, auditoria en audit.js). Tests: test/engine.test.mjs (npm install; node --test test/engine.test.mjs). Reconstruir: node build/build.mjs
+Todos los datos son ficticios o importados del Excel y estan pendientes de validacion.
