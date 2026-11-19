@@ -100,7 +100,7 @@ export function CloudBar({ cs }) {
   const hh = cs.at ? cs.at.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "—";
   return (
     <div className="demo-bar no-print" role="status">
-      Base compartida · {cs.email} ({cs.roleTxt}) · {cs.busy ? "guardando…" : "sincronizado " + hh}
+      Base compartida · {cs.email} ({cs.roleTxt}) · {cs.busy ? "guardando…" : "sincronizado " + hh} · Pacientes: solo en este equipo
       {!cs.canEdit && " · Con tu rol no se guardan cambios en la nube."}
       {cs.msg && <span role="alert" style={{ display: "block", fontWeight: 600 }}>{cs.msg}</span>}
       {" "}<button className="btn" onClick={cs.logout}>Cerrar sesión</button>

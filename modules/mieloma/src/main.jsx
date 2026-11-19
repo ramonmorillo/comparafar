@@ -60,7 +60,6 @@ function Plataforma() {
         {MODULES.map((m) => <button key={m.id} className="tile" onClick={() => go("inicio")}><strong>{m.name}</strong><span>{m.desc}</span><span className="muted">{m.status}</span></button>)}
         <div className="tile" style={{ cursor: "default", borderStyle: "dashed" }}><strong>Nuevos módulos</strong><span>Todavía no hay más módulos. Se añadirán a medida que se definan y validen.</span></div>
       </div>
-      <Banner kind="info" title="Dónde se guardan los datos.">De momento, en el navegador de este equipo. No se comparten entre usuarios ni entre equipos, y se pierden si se borra la caché. Usa la copia de seguridad (Administración) hasta que haya base de datos compartida.</Banner>
     </div>
   );
 }
@@ -84,6 +83,7 @@ function App() {
     const base = SCHEMES_ALL.map((b) => u[b.id] || b);
     return [...base, ...(S.userSchemes || []).filter((s) => !SCHEMES_ALL.some((b) => b.id === s.id))];
   }, [S.userSchemes]);
+  const pendingValidation = S.catalog.some((c) => !c.archived && c.status !== "verificado") || schemes.some((s) => !s.archived && s.status !== "verificado");
   const patient = S.patients.find((p) => p.code === S.activePatient) || S.patients[0];
   const resetAll = useCallback(() => { setS(initialState()); try { window.localStorage.removeItem(KEY); } catch (e) {} }, []);
   const exportState = useCallback(() => JSON.stringify({ app: "MieloFarma", engine: ENGINE_VERSION, exported: new Date().toISOString(), state: S }), [S]);
@@ -106,7 +106,7 @@ function App() {
           <div className="side-f">Motor v{ENGINE_VERSION}<br />Datos del Excel · sin verificar</div>
         </aside>
         <div className="main-w">
-          <div className="demo-bar no-print" role="status">Datos de demostración: pacientes ficticios, pautas y precios importados del Excel <b>pendientes de validación</b>. No usar como información clínica verificada.{!persist && " · Este entorno no permite guardar entre sesiones."}</div>
+          {pendingValidation && <div className="demo-bar no-print" role="status">Precios y pautas importados del Excel <b>pendientes de validación</b>. No usar como información clínica verificada.{!persist && " · Este entorno no permite guardar entre sesiones."}</div>}
           <CloudBar cs={cs} />
           <main id="main" tabIndex={-1}>{cs.status === "login" ? <LoginGate cs={cs} /> : cs.status === "boot" ? null : <Page />}</main>
         </div>
