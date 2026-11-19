@@ -97,6 +97,16 @@ export function PanelPage() {
 }
 
 /* ============================== INFORMES ============================== */
+function PrintBtn({ title }) {
+  const [msg, setMsg] = useState(null);
+  const run = () => {
+    const prev = document.title; setMsg(null);
+    const restore = () => { document.title = prev; window.removeEventListener("afterprint", restore); };
+    try { document.title = title; window.addEventListener("afterprint", restore); window.print(); setTimeout(restore, 4000); }
+    catch (e) { restore(); setMsg("No se ha podido abrir la impresión en este entorno. Abre la aplicación en su propia pestaña y usa Ctrl+P, o copia el informe."); }
+  };
+  return <div className="actions v"><Btn variant="primary" onClick={run}>Imprimir informe</Btn>{msg && <div role="alert" className="small">{msg}</div>}</div>;
+}
 export function InformesPage() {
   const { S, set, patient, schemes } = useApp();
   const src = S.reportSource || "calc";
@@ -108,8 +118,7 @@ export function InformesPage() {
   const t = src === "calc" ? rep.res.totals : null;
   return (
     <div className="page">
-      <div className="page-h"><h1>Informes</h1></div>
-      <Banner kind="info" title="Impresión y descarga no disponibles en este entorno.">Usa los botones de copiar y pega el contenido en Word o en la historia clínica. Esta vista tiene estilo de impresión por si abres el artefacto en una pestaña propia y usas Ctrl/Cmd+P.</Banner>
+      <div className="page-h no-print"><h1>Informes</h1></div>
       <div className="grid-calc">
         <div className="stack no-print">
           <Card title="Contenido">
@@ -118,6 +127,10 @@ export function InformesPage() {
             <Field label="Elaborado por"><input value={rp.author != null ? rp.author : cfg.author} onChange={(e) => setRp({ author: e.target.value })} /></Field>
             <Field label="Revisado por"><input value={rp.reviewer != null ? rp.reviewer : cfg.reviewer} onChange={(e) => setRp({ reviewer: e.target.value })} /></Field>
             <Field label="Observaciones (sin identificadores del paciente)"><textarea rows={3} value={rp.notes || ""} onChange={(e) => setRp({ notes: e.target.value })} /></Field>
+          </Card>
+          <Card title="Imprimir o guardar en PDF">
+            <PrintBtn title={`Informe_${patient.code}_${meta.date}`} />
+            <p className="muted small">En el cuadro de impresión elige «Guardar como PDF» si quieres un archivo. Se imprime solo el informe de la derecha.</p>
           </Card>
           <Card title="Copiar">
             <div className="actions v">
