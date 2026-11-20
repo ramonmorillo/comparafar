@@ -2,16 +2,17 @@ import React, { useState, useMemo } from "react";
 import { computeScheme, sensitivity, validateScheme, parseDays, daysToString, buildBsAbScheme, currentPrice, parseCSV, parseNumberEs, HORIZONS, fmtEUR, fmtNum, fmtDate, toCSV, DAYS_PER_MONTH } from "./engine.js";
 import { LINE_LABEL, DRUGS, BSAB_PRESETS, CART_ITEMS } from "./data.js";
 import { useApp, Btn, Field, NumInput, Select, Check, Card, Banner, Tabs, Chip, schemeChips, Kpi, Eur, Dlt, Empty, LineChart, StackBars, Legend, drugColor, CopyBtn, Modal, cx } from "./kit.jsx";
+import { ecoSection } from "./exportsEco.js";
 import { calcOpts, buildCompareReport, compareCSV, lineLabel, dn, horizonLabel, patientParams, DATA_VERSION } from "./report.js";
 import { today, enginePat, schemeOptions, SchemeDetail } from "./pages_a.jsx";
 
 /* ============================== COMPARADOR ============================== */
 export function ComparadorPage() {
-  const { S, set, patient, schemes, go } = useApp();
+  const { S, set, patient, schemes, go, access } = useApp();
   const c = S.cmp;
   const setC = (patch) => set((x) => ({ ...x, cmp: { ...x.cmp, ...patch } }));
   const items = c.items.filter((it) => schemes.find((s) => s.id === it.schemeId));
-  const rep = useMemo(() => buildCompareReport(S, enginePat(patient), { ...c, items }, schemes), [S.catalog, patient, c, schemes]);
+  const rep = useMemo(() => buildCompareReport(S, enginePat(patient), { ...c, items }, schemes, { eco: ecoSection(S, schemes, { access }) }), [S.catalog, patient, c, schemes, S.agreements, S.spendEntries, S.plans, S.estimates, S.ref, access]);
   const [tab, setTab] = useState("resumen");
   const setItem = (i, patch) => setC({ items: c.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
   const add = () => c.items.length < 4 && setC({ items: [...c.items, { schemeId: schemes.find((s) => !c.items.some((i) => i.schemeId === s.id) && !s.archived).id, maint: "none" }] });

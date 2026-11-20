@@ -1,6 +1,7 @@
 // Construcción pura de informes (texto, CSV y estructura) a partir del estado
 import { computeScheme, compareSchemes, resolvePatient, horizonToDays, HORIZONS, fmtEUR, fmtNum, fmtDate, toCSV, ENGINE_VERSION, sensitivity } from "./engine.js";
 import { DRUGS } from "./data.js";
+import { ecoLines, ecoCSVRows } from "./exportsEco.js";
 
 export const DATA_VERSION = "datos-excel-2026-11-17.1";
 export const dn = (d) => DRUGS[d] || d;
@@ -45,11 +46,13 @@ export function reportText(S, rep, cfg, meta) {
     rep.warn.forEach((w) => L.push("AVISO: " + w));
     rep.flags.forEach((w) => L.push("PENDIENTE DE VALIDAR: " + w));
     L.push("", "Precios y fuentes:", ...rep.sources.map((s) => "- " + s));
+    L.push(...ecoLines(rep.eco));
   } else {
     L.push(`PACIENTE (código pseudonimizado): ${meta.patientCode}`, `Peso ${fmtNum(rep.pt.weight, 1)} kg · Talla ${fmtNum(rep.pt.height, 2)} m · SC ${rep.pt.sc ? fmtNum(rep.pt.sc, 3) : "—"} m² (${rep.pt.scSource})`, `Horizonte: ${rep.horizon} · Aprovechamiento: ${rep.reuse || 0} %`, "");
     L.push("COMPARACIÓN ECONÓMICA (coste tras ajustes; diferencia respecto al primer esquema)");
     rep.cols.forEach((c) => L.push(`- ${c.name}: ${fmtEUR(c.eff)} (teórico ${fmtEUR(c.theor)}; envases completos ${fmtEUR(c.full)})${c.diff != null ? `; dif. ${fmtEUR(c.diff)} (${fmtNum(c.pct, 1)} %)` : " [referencia]"}`));
     rep.warn.forEach((w) => L.push("AVISO: " + w));
+    L.push(...ecoLines(rep.eco));
   }
   L.push("", cfg.footer, `Elaborado por: ${meta.author || "—"} · Revisado por: ${meta.reviewer || "—"}`);
   if (meta.notes) L.push("Observaciones: " + meta.notes);
@@ -68,10 +71,11 @@ export function calcCSV(rep) {
   rep.lines.forEach((l) => rows.push([l.nombre, l.admin, fmtNum(l.mg, 2), l.viales, fmtNum(l.teor, 2), fmtNum(l.full, 2), fmtNum(l.eff, 2), l.priced ? "sí" : "no"]));
   const t = rep.res.totals; if (t) rows.push(["TOTAL", t.admins, "", t.vials, fmtNum(t.theor, 2), fmtNum(t.full, 2), fmtNum(t.eff, 2), ""]);
   rows.push([], ["Supuestos"], ["Esquema", rep.scheme.name], ["Peso (kg)", rep.pt.weight], ["Talla (m)", rep.pt.height], ["SC (m²)", rep.pt.sc ? fmtNum(rep.pt.sc, 3) : ""], ["Origen SC", rep.pt.scSource], ["Horizonte", rep.horizon], ["Aprovechamiento viales (%)", rep.reuse || 0], ["Versión motor", ENGINE_VERSION], ["Versión datos", DATA_VERSION]);
+  rows.push(...ecoCSVRows(rep.eco));
   return toCSV(rows);
 }
 
-export function buildCompareReport(S, patient, cmp, schemes) {
+export function buildCompareReport(S, patient, cmp, schemes, extra = {}) {
   const items = cmp.items.map((it) => ({ scheme: schemes.find((s) => s.id === it.schemeId), maint: it.maint || "none" })).filter((i) => i.scheme);
   const opts = calcOpts({ ...cmp, maint: "none", cycles: {} });
   const out = compareSchemes(items, S.catalog, patient, opts);
@@ -84,7 +88,7 @@ export function buildCompareReport(S, patient, cmp, schemes) {
   });
   const warn = [];
   out.results.forEach(({ it, r }) => r.warnings.filter((w) => w.level !== "info").forEach((w) => warn.push(`${it.scheme.name}: ${w.text}`)));
-  return { kind: "cmp", out, cols, pt, warn, horizon: horizonLabel(cmp), reuse: cmp.reuse, opts };
+  return { kind: "cmp", out, cols, pt, warn, horizon: horizonLabel(cmp), reuse: cmp.reuse, opts, ...extra };
 }
 
 export function compareCSV(rep) {
@@ -93,5 +97,6 @@ export function compareCSV(rep) {
   rows.push([], ["Desglose por fármaco (coste tras ajustes)", ...rep.cols.map((c) => c.name)]);
   rep.out.byDrug.forEach((d) => rows.push([dn(d.drug), ...d.vals.map((v) => (v.priced ? fmtNum(v.eff, 2) : "sin precio"))]));
   rows.push([], ["Supuestos"], ["Peso (kg)", rep.pt.weight], ["Talla (m)", rep.pt.height], ["SC (m²)", rep.pt.sc ? fmtNum(rep.pt.sc, 3) : ""], ["Origen SC", rep.pt.scSource], ["Horizonte", rep.horizon], ["Aprovechamiento viales (%)", rep.reuse || 0], ["Versión motor", ENGINE_VERSION], ["Versión datos", DATA_VERSION], ["Nota", "Comparación económica; no implica superioridad terapéutica."]);
+  rows.push(...ecoCSVRows(rep.eco));
   return toCSV(rows);
 }

@@ -24,7 +24,7 @@ jobs:
         working-directory: modules/mieloma
         run: |
           npm ci
-          node --test test/engine.test.mjs
+          npm test
           node build/build.mjs
       - name: Preparar carpeta de publicación
         run: |
