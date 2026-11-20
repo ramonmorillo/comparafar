@@ -26,7 +26,7 @@ export function agreementRow(S, ag, ev) {
 }
 // → null (nada que añadir) | { note } (sin permiso) | { rows, asOf }
 export function ecoSection(S, schemes, { access, asOf = new Date().toISOString().slice(0, 10) } = {}) {
-  const ags = (S.agreements || []).filter((a) => a);
+  const ags = (S.agreements || []).filter((a) => a && !a.voided);   // los acuerdos anulados no se exportan como vigentes
   if (!ags.length) return null;
   if (access && !access.view) return { note: "Condiciones comerciales no incluidas: tu rol no tiene permiso para verlas.", rows: [] };
   const items = spendItems(S, schemes, asOf);

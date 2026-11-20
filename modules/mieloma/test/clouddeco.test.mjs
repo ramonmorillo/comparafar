@@ -41,7 +41,7 @@ test("catálogo de referencia: ida y vuelta; CN siempre como texto y nulo si vac
   const p = { id: "PR1", medicineId: "M1", cn: "0123456", label: "l", content: { count: 1 }, conversion: { mgPerUnit: 3.5, verified: true }, oral: false, source: { kind: "cima" }, archived: false };
   assert.equal(presentationToRow(p).cn, "0123456"); assert.equal(presentationToRow({ ...p, cn: "" }).cn, null);
   assert.deepEqual(rowToPresentation(presentationToRow(p)), p);
-  const m = { id: "M1", name: "n", nregistro: "1161101004IP", labtitular: "L", forma: "f", atc: null, ingredients: [{ ingredientId: "PA1", amount: "1", unit: "mg" }], source: { kind: "cima" } };
+  const m = { id: "M1", name: "n", nregistro: "1161101004IP", labtitular: "L", forma: "f", atc: null, ingredients: [{ ingredientId: "PA1", amount: "1", unit: "mg" }], source: { kind: "cima" }, archived: false };
   assert.deepEqual(rowToMedicine(medicineToRow(m)), m);
   const i = { id: "PA1", name: "x", nameNorm: "x", source: { kind: "manual" }, cima: { id: 1, codigo: "9" } };
   assert.deepEqual(rowToIngredient(ingredientToRow(i)), i);

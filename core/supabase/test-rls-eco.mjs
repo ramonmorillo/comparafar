@@ -15,6 +15,7 @@ const sql = (f) => fs.readFileSync(path.join(here, f), "utf8");
 await db.exec(sql("001_schema.sql")); await db.exec(sql("002_seed_catalog.sql"));
 await db.exec(sql("003_modulos_economicos.sql")); await db.exec(sql("003_modulos_economicos.sql")); // idempotente
 await db.exec(sql("004_anulaciones.sql")); await db.exec(sql("004_anulaciones.sql")); // idempotente
+await db.exec(sql("005_catalogo_acuerdos.sql")); await db.exec(sql("005_catalogo_acuerdos.sql")); // idempotente
 const ids = {};
 for (const n of ["admin", "editor", "lector", "revisor"]) ids[n] = (await db.query("insert into auth.users(email) values ($1) returning id", [n + "@x.es"])).rows[0].id;
 await db.exec("update profiles set role='admin' where email='admin@x.es'; update profiles set role='editor' where email='editor@x.es'; update profiles set role='revisor' where email='revisor@x.es';");
@@ -82,4 +83,28 @@ const aud = (await as("admin", "select entity, entity_id, action, user_email, de
 t("auditoría: una entrada «anular» por anulación, con autor y motivo", aud.length === 3 && aud.every((r) => r.user_email === "revisor@x.es" && r.detail.reason) && ["price_versions", "spend_entries", "price_history"].every((e) => aud.some((r) => r.entity === e)));
 t("la anulación no genera además una entrada «update»", (await as("admin", "select count(*)::int c from audit_log where entity='price_versions' and entity_id='V1' and action='update'")).rows[0].c === 0);
 t("tras 004: TRUNCATE sigue vetado y anon sigue sin acceso", !(await as("admin", "truncate price_versions")).ok && !(await as("admin", "truncate price_history")).ok && !(await as("anon", "select * from spend_entries")).ok && !(await as("anon", "update price_history set voided_at=now()")).ok);
+// 005: archivar y anular acuerdos
+const ag = async (who, ver, data) => as(who, "update agreements set version=$2, data=$3::jsonb where id=$1 returning id", ["A1", ver, JSON.stringify(data)]);
+const cur = async () => (await as("admin", "select version, data from agreements where id='A1'")).rows[0];
+let c0 = await cur();
+t("el editor sigue pudiendo editar un acuerdo", (await ag("editor", c0.version + 1, { ...c0.data, threshold: 5 })).rows?.length === 1);
+c0 = await cur();
+const VD = (reason) => ({ ...c0.data, status: "anulado", voided: { reason, at: "2026-12-01T00:00:00Z", by: "x" } });
+t("el editor no anula un acuerdo", !(await ag("editor", c0.version + 1, VD("Error"))).ok);
+t("anular un acuerdo exige motivo", !(await ag("revisor", c0.version + 1, VD("  "))).ok && !(await ag("revisor", c0.version + 1, { ...c0.data, status: "anulado" })).ok);
+t("el revisor anula un acuerdo con motivo", (await ag("revisor", c0.version + 1, VD("Contrato resuelto"))).rows?.length === 1);
+c0 = await cur();
+t("un acuerdo anulado no se modifica ni se reactiva (ni el admin)", !(await ag("admin", c0.version + 1, { ...c0.data, threshold: 9 })).ok && !(await ag("admin", c0.version + 1, { ...c0.data, status: "vigente" })).ok);
+t("un acuerdo no puede nacer anulado", !(await as("editor", `insert into agreements(id,type,title,scope_level,scope_target,data,source,owner) values ('A9','techo','x','principio_activo','legacy:bort','{"status":"anulado","voided":{"reason":"r"}}','s','o')`)).ok);
+t("el histórico conserva la versión anulada y la anterior", (await as("editor", "select count(*)::int c from agreement_versions where agreement_id='A1'")).rows[0].c >= 4);
+const aa = (await as("admin", "select detail from audit_log where entity='agreements' and entity_id='A1' order by id desc limit 1")).rows[0].detail;
+t("auditoría de acuerdos: estado y motivo de la anulación", aa.status === "anulado" && aa.reason === "Contrato resuelto");
+t("el editor edita un medicamento y una presentación", (await as("editor", "update ref_medicines set labtitular='Lab' where id='M1' returning id")).rows?.length === 1 && (await as("editor", "update ref_presentations set label='Caja 60' where id='P1' returning id")).rows?.length === 1);
+t("el editor no archiva", !(await as("editor", "update ref_medicines set archived=true where id='M1'")).ok && !(await as("editor", "update ref_presentations set archived=true where id='P1'")).ok);
+t("el revisor archiva y restaura (reversible)", (await as("revisor", "update ref_medicines set archived=true where id='M1' returning id")).rows?.length === 1 && (await as("revisor", "update ref_presentations set archived=true where id='P1' returning id")).rows?.length === 1
+  && (await as("admin", "select archived from ref_medicines where id='M1'")).rows[0].archived === true
+  && (await as("admin", "update ref_medicines set archived=false where id='M1' returning id")).rows?.length === 1);
+t("el lector no archiva ni edita el catálogo", (await as("lector", "update ref_medicines set archived=true where id='M1' returning id")).rows?.length !== 1 && (await as("lector", "update ref_presentations set label='x' where id='P1' returning id")).rows?.length !== 1);
+t("auditoría del catálogo: queda el estado de archivo", (await as("admin", "select count(*)::int c from audit_log where entity='ref_medicines' and detail->>'archived'='true'")).rows[0].c >= 1);
+t("tras 005: nada se borra y TRUNCATE sigue vetado", !(await as("admin", "delete from ref_medicines")).ok && !(await as("admin", "truncate ref_medicines")).ok && !(await as("admin", "delete from agreements")).ok);
 console.log(bad ? `\n${bad} fallo(s)` : "\nRLS de módulos económicos correcto"); process.exit(bad ? 1 : 0);

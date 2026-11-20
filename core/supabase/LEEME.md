@@ -18,3 +18,7 @@ Los datos de pacientes NO se envían a Supabase.
 
 ## Anulaciones (004) — NO aplicado
 `004_anulaciones.sql` (requiere 001 y 003): permite anular (no borrar) versiones de precio, gasto registrado y su reflejo en `price_history`, solo por revisor/admin y con motivo obligatorio. Aditiva e idempotente. Ejecútala después de 003 y antes de usar «Anular» con la base compartida. Verifica con `node core/supabase/test-rls-eco.mjs` (pglite).
+
+## Archivar y anular acuerdos (005) — NO aplicado
+`005_catalogo_acuerdos.sql` (requiere 001, 003 y 004): columna `ref_medicines.archived`, archivar/restaurar solo revisor/admin, y anulación de acuerdos irreversible, con motivo y solo revisor/admin. Aditiva e idempotente. Orden: 003 → 004 → 005. Verifica con `node core/supabase/test-rls-eco.mjs` (pglite).
+

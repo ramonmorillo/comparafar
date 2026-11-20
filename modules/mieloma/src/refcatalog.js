@@ -19,9 +19,11 @@ export function legacyPresentations(catalog) {
   }));
 }
 export function allIngredients(S) { return [...legacyIngredients(), ...ensureRef(S.ref).ingredients]; }
-export function allPresentations(S) {
+// Una presentación archivada, o de un medicamento archivado, no se ofrece en listas ni en la correspondencia (salvo includeArchived, para poder restaurarla).
+export function allPresentations(S, { includeArchived = false } = {}) {
   const ref = ensureRef(S.ref); const med = Object.fromEntries(ref.medicines.map((m) => [m.id, m]));
-  const own = ref.presentations.filter((p) => !p.archived).map((p) => ({ ...p, ingredientIds: ((med[p.medicineId] || {}).ingredients || []).map((i) => i.ingredientId), medicineName: (med[p.medicineId] || {}).name }));
+  const own = ref.presentations.filter((p) => includeArchived || (!p.archived && !(med[p.medicineId] || {}).archived))
+    .map((p) => ({ ...p, ingredientIds: ((med[p.medicineId] || {}).ingredients || []).map((i) => i.ingredientId), medicineName: (med[p.medicineId] || {}).name, medicineArchived: !!(med[p.medicineId] || {}).archived }));
   return [...legacyPresentations(S.catalog), ...own];
 }
 export const ingredientName = (S, id) => (allIngredients(S).find((i) => i.id === id) || {}).name || id;
@@ -43,7 +45,7 @@ export function addMedicine(ref, { name, ingredients, source, nregistro, labtitu
   ingredients.forEach((i) => { if (!known.has(i.ingredientId)) throw new CatalogError("Principio activo desconocido.", "invalid"); });
   const dup = ref.medicines.find((m) => (nregistro && m.nregistro === nregistro) || (!nregistro && !m.nregistro && normalizeName(m.name) === normalizeName(n)));
   if (dup) throw new CatalogError(`Ya existe el medicamento «${dup.name}».`, "duplicate", dup);
-  const med = { id: uid("MED-"), name: n, nregistro: nregistro || null, labtitular: labtitular || "", forma: forma || "", atc: atc || null, ingredients: ingredients.map((i) => ({ ingredientId: i.ingredientId, amount: i.amount == null ? "" : String(i.amount), unit: i.unit || "" })), source: source || prov("manual", { by: user || null, at: now }) };
+  const med = { id: uid("MED-"), name: n, nregistro: nregistro || null, labtitular: labtitular || "", forma: forma || "", atc: atc || null, ingredients: ingredients.map((i) => ({ ingredientId: i.ingredientId, amount: i.amount == null ? "" : String(i.amount), unit: i.unit || "" })), source: source || prov("manual", { by: user || null, at: now }), archived: false };
   return { ref: { ...ref, medicines: [...ref.medicines, med] }, medicine: med };
 }
 export function addPresentation(ref, { medicineId, label, cn, content, conversion, oral, source }, { user, now = new Date().toISOString() } = {}) {
@@ -63,6 +65,47 @@ export function setConversion(ref, presId, conv, { user, now = new Date().toISOS
   if (!ref.presentations.some((p) => p.id === presId)) throw new CatalogError("Presentación no encontrada.", "invalid");
   if (conv && !(conv.mgPerUnit > 0)) throw new CatalogError("mg por unidad debe ser > 0.", "invalid");
   return { ...ref, presentations: ref.presentations.map((p) => (p.id === presId ? { ...p, conversion: conv ? { mgPerUnit: conv.mgPerUnit, basis: conv.basis || "manual", verified: !!conv.verified, note: conv.note || "", by: user || null, at: now } : null } : p)) };
+}
+
+/* ---------- Editar y archivar (nunca se borra) ---------- */
+// Editar un medicamento: nombre, laboratorio, forma y nº de registro. La composición (principios activos) no se edita aquí:
+// cambiarla alteraría el alcance de acuerdos y precios ya registrados; para eso se da de alta un medicamento nuevo.
+export function editMedicine(ref, id, patch, { user, now = new Date().toISOString() } = {}) {
+  ref = ensureRef(ref); const m = ref.medicines.find((x) => x.id === id);
+  if (!m) throw new CatalogError("Medicamento no encontrado.", "invalid");
+  const name = trim(patch.name == null ? m.name : patch.name); if (!name) throw new CatalogError("Falta el nombre del medicamento.", "invalid");
+  const nreg = patch.nregistro === undefined ? m.nregistro : (trim(patch.nregistro) || null);
+  const dup = ref.medicines.find((x) => x.id !== id && ((nreg && x.nregistro === nreg) || (!nreg && !x.nregistro && normalizeName(x.name) === normalizeName(name))));
+  if (dup) throw new CatalogError(`Ya existe el medicamento «${dup.name}».`, "duplicate", dup);
+  const next = { ...m, name, nregistro: nreg, labtitular: patch.labtitular === undefined ? m.labtitular : trim(patch.labtitular), forma: patch.forma === undefined ? m.forma : trim(patch.forma),
+    source: { ...(m.source || {}), editedBy: user || null, editedAt: now } };
+  return { ...ref, medicines: ref.medicines.map((x) => (x.id === id ? next : x)) };
+}
+// Editar una presentación: descripción, CN, contenido y vía oral. La equivalencia mg/envase se cambia con setConversion.
+export function editPresentation(ref, id, patch, { user, now = new Date().toISOString() } = {}) {
+  ref = ensureRef(ref); const p = ref.presentations.find((x) => x.id === id);
+  if (!p) throw new CatalogError("Presentación no encontrada.", "invalid");
+  const label = trim(patch.label == null ? p.label : patch.label); if (!label) throw new CatalogError("Falta la descripción de la presentación.", "invalid");
+  const cnRaw = patch.cn === undefined ? p.cn : patch.cn; const cn = cnRaw == null || cnRaw === "" ? null : String(cnRaw).trim();
+  if (cn && !/^\d{6,7}$/.test(cn)) throw new CatalogError("El código nacional son 6 o 7 dígitos (se guarda como texto).", "invalid");
+  const dup = ref.presentations.find((x) => x.id !== id && !x.archived && ((cn && x.cn === cn) || (x.medicineId === p.medicineId && normalizeName(x.label) === normalizeName(label))));
+  if (dup) throw new CatalogError(`Ya existe esa presentación («${dup.label}»${dup.cn ? ", CN " + dup.cn : ""}).`, "duplicate", dup);
+  const next = { ...p, label, cn, content: patch.content === undefined ? p.content : patch.content, oral: patch.oral === undefined ? p.oral : !!patch.oral, source: { ...(p.source || {}), editedBy: user || null, editedAt: now } };
+  return { ...ref, presentations: ref.presentations.map((x) => (x.id === id ? next : x)) };
+}
+// Archivar es reversible y no toca precios, acuerdos ni alias. kind: "medicine" | "presentation".
+export function setArchived(ref, kind, id, archived) {
+  ref = ensureRef(ref); const key = kind === "medicine" ? "medicines" : "presentations";
+  if (!ref[key].some((x) => x.id === id)) throw new CatalogError("No encontrado.", "invalid");
+  return { ...ref, [key]: ref[key].map((x) => (x.id === id ? { ...x, archived: !!archived } : x)) };
+}
+// Qué se verá afectado al archivar: versiones de precio vigentes y acuerdos (no anulados) que apuntan a ello. Informativo: nunca bloquea.
+export function archiveImpact(S, kind, id) {
+  const ref = ensureRef(S.ref);
+  const presIds = kind === "medicine" ? ref.presentations.filter((p) => p.medicineId === id).map((p) => p.id) : [id];
+  const prices = (S.priceVersions || []).filter((v) => !v.voided && !v.to && presIds.includes(v.presId)).length;
+  const agreements = (S.agreements || []).filter((a) => !a.voided && ((kind === "medicine" && a.scope.level === "medicamento" && a.scope.targetId === id) || (a.scope.level === "presentacion" && presIds.includes(a.scope.targetId)))).length;
+  return { presentations: kind === "medicine" ? presIds.length : 0, prices, agreements };
 }
 
 /* ---------- Alias de Oncofar (solo con confirmación del usuario) ---------- */
