@@ -3,6 +3,7 @@ import { computeScheme, sensitivity, resolvePatient, BSA_METHODS, bsa, HORIZONS,
 import { LINE_LABEL, DRUGS } from "./data.js";
 import { FINDINGS } from "./audit.js";
 import { useApp, Btn, Field, NumInput, Select, Check, Card, Banner, Tabs, Chip, schemeChips, Kpi, Eur, Dlt, Empty, LineChart, StackBars, Legend, drugColor, GROUP_LABEL, CopyBtn, cx } from "./kit.jsx";
+import { ecoSection } from "./exportsEco.js";
 import { calcOpts, buildCalcReport, calcCSV, clinicalSummary, lineLabel, dn, horizonLabel } from "./report.js";
 
 export const today = () => new Date().toISOString().slice(0, 10);
@@ -143,12 +144,12 @@ export function PacientePage() {
 
 /* ============================== CALCULADORA ============================== */
 export function CalculadoraPage() {
-  const { S, set, patient, go, schemes } = useApp();
+  const { S, set, patient, go, schemes, access } = useApp();
   const c = S.calc;
   const setC = (patch) => set((x) => ({ ...x, calc: { ...x.calc, ...patch } }));
   const scheme = schemes.find((s) => s.id === c.schemeId) || schemes[0];
   const pat = enginePat(patient);
-  const rep = useMemo(() => buildCalcReport(S, pat, c, scheme), [S.catalog, patient.weight, patient.height, patient.scMethod, patient.scOverride, c, scheme]);
+  const rep = useMemo(() => buildCalcReport(S, pat, c, scheme, { eco: ecoSection(S, schemes, { access }) }), [S.catalog, patient.weight, patient.height, patient.scMethod, patient.scOverride, c, scheme, S.agreements, S.spendEntries, S.plans, S.estimates, S.ref, access]);
   const res = rep.res;
   const [tab, setTab] = useState("resumen");
   const [saved, setSaved] = useState(false);

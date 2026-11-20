@@ -6,13 +6,17 @@ import { addDays } from "./engine.js";
 import { AppCtx, Banner, Btn } from "./kit.jsx";
 import { Inicio, PacientePage, CalculadoraPage } from "./pages_a.jsx";
 import { ComparadorPage, EsquemasPage, PreciosPage, AvanzadasPage } from "./pages_b.jsx";
+import { ImportarPage, CatalogoPage } from "./pages_d.jsx";
+import { CostesPage, AcuerdosPage } from "./pages_e.jsx";
+import { commercialAccess } from "./access.js";
+import { emptyRef } from "./refcatalog.js";
 import { AgendaPage, PanelPage, InformesPage, AuditoriaPage, AdminPage } from "./pages_c.jsx";
 import { ENGINE_VERSION } from "./engine.js";
 
 const KEY = "mielofarma:v1";
 const ROUTES = [
   ["plataforma", "Comparafar", null], ["inicio", "Inicio", Inicio], ["paciente", "Paciente", PacientePage], ["calculadora", "Calculadora", CalculadoraPage], ["comparador", "Comparador", ComparadorPage],
-  ["esquemas", "Esquemas", EsquemasPage], ["precios", "Precios", PreciosPage], ["avanzadas", "Terapias avanzadas", AvanzadasPage], ["agenda", "Agenda", AgendaPage],
+  ["esquemas", "Esquemas", EsquemasPage], ["precios", "Precios", PreciosPage], ["importar", "Importar desde Oncofar", ImportarPage], ["catalogo", "Catálogo de medicamentos", CatalogoPage], ["costes", "Costes", CostesPage], ["acuerdos", "Acuerdos de gasto", AcuerdosPage], ["avanzadas", "Terapias avanzadas", AvanzadasPage], ["agenda", "Agenda", AgendaPage],
   ["panel", "Panel", PanelPage], ["informes", "Informes", InformesPage], ["auditoria", "Auditoría", AuditoriaPage], ["admin", "Administración", AdminPage],
 ];
 const MODULES = [{ id: "mieloma", name: "Mieloma múltiple", desc: "Calculadora individualizada, comparación farmacoeconómica de esquemas, precios, terapias avanzadas, agenda e informes.", status: "Activo · datos pendientes de validación" }];
@@ -37,6 +41,8 @@ export function initialState() {
     cmp: { items: [{ schemeId: "1N-ISAVRD-IV", maint: "none" }, { schemeId: "1N-DVRD-IV", maint: "none" }, { schemeId: "1N-DRD-IV", maint: "none" }], horizon: "12", horizonCustom: 365, reuse: 0, roundStep: 0, applyCaps: false },
     adv: { drug: "tec", stepUp: true, mode: "weekly", weeksBefore: 24, months: 12, reuse: 0, cfg: {}, inst: {}, scen: [] },
     report: {}, reportSource: "calc", log: [],
+    // Módulos económicos (aditivos: los datos anteriores se abren con estos valores por defecto)
+    ref: emptyRef(), priceVersions: [], agreements: [], spendEntries: [], importDrafts: [], importedPlans: [], estimates: [],
   };
 }
 const load = () => {
@@ -94,7 +100,8 @@ function App() {
       setS({ ...initialState(), ...s }); return { ok: true, text: "Copia restaurada." };
     } catch (e) { return { ok: false, text: "No se pudo leer el JSON: " + e.message }; }
   }, []);
-  const ctx = { S, set, go, route, schemes, patient, resetAll, exportState, importState };
+  const access = commercialAccess(cs);
+  const ctx = { S, set, go, route, schemes, patient, resetAll, exportState, importState, cs, access, user: cs.email || null };
   const Page = (ROUTES.find((r) => r[0] === route) || ROUTES[0])[2] || Plataforma;
   return (
     <AppCtx.Provider value={ctx}>

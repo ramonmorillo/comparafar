@@ -4,7 +4,10 @@
  "description": "",
  "main": "index.js",
  "scripts": {
-  "test": "echo \"Error: no test specified\" && exit 1"
+  "test": "node --test test/*.test.mjs && node test/bsab.mjs && node test/regress.mjs > /dev/null && node test/ssr.mjs",
+  "build": "node build/build.mjs",
+  "test:e2e": "node build/build.mjs && node test/e2e.mjs",
+  "test:rls": "node ../../core/supabase/test-rls-eco.mjs"
  },
  "keywords": [],
  "author": "",
@@ -12,6 +15,7 @@
  "dependencies": {
   "@supabase/supabase-js": "^2.119.2",
   "esbuild": "^0.21.5",
+  "pdfjs-dist": "^4.10.38",
   "react": "^18.3.1",
   "react-dom": "^18.3.1"
  },

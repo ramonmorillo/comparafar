@@ -4,6 +4,7 @@ import { LINE_LABEL, SCHEMES_ALL, CATALOG_INITIAL, CONFIG_DEFAULT } from "./data
 import { FINDINGS, SEV, EXPLAIN, EXPLAIN_MAINT, TRACE } from "./audit.js";
 import INVENTORY from "./inventory.json";
 import { useApp, Btn, Field, NumInput, Select, Check, Card, Banner, Tabs, Chip, Kpi, Eur, Dlt, Empty, StackBars, CopyBtn, Modal, cx, drugColor } from "./kit.jsx";
+import { ecoSection } from "./exportsEco.js";
 import { buildCalcReport, buildCompareReport, reportText, clinicalSummary, calcCSV, compareCSV, dn, calcOpts, DATA_VERSION } from "./report.js";
 import { today, enginePat, schemeOptions } from "./pages_a.jsx";
 
@@ -108,9 +109,9 @@ function PrintBtn({ title }) {
   return <div className="actions v"><Btn variant="primary" onClick={run}>Imprimir informe</Btn>{msg && <div role="alert" className="small">{msg}</div>}</div>;
 }
 export function InformesPage() {
-  const { S, set, patient, schemes } = useApp();
+  const { S, set, patient, schemes, access } = useApp();
   const src = S.reportSource || "calc";
-  const rep = useMemo(() => (src === "cmp" ? buildCompareReport(S, enginePat(patient), S.cmp, schemes) : buildCalcReport(S, enginePat(patient), S.calc, schemes.find((s) => s.id === S.calc.schemeId) || schemes[0])), [S, patient, schemes, src]);
+  const rep = useMemo(() => (src === "cmp" ? buildCompareReport(S, enginePat(patient), S.cmp, schemes, { eco: ecoSection(S, schemes, { access }) }) : buildCalcReport(S, enginePat(patient), S.calc, schemes.find((s) => s.id === S.calc.schemeId) || schemes[0], { eco: ecoSection(S, schemes, { access }) })), [S, patient, schemes, src, access]);
   const cfg = S.config; const rp = S.report || {};
   const meta = { date: today(), patientCode: patient.code, author: rp.author || cfg.author, reviewer: rp.reviewer || cfg.reviewer, notes: rp.notes };
   const setRp = (patch) => set((x) => ({ ...x, report: { ...(x.report || {}), ...patch } }));

@@ -4,6 +4,9 @@ Plataforma de apoyo para Farmacia Hospitalaria, organizada en módulos. Primer m
 
 > Estado: prototipo. Los datos de pacientes son ficticios; las pautas y los precios proceden del Excel «Mielola multiple costes 2026» y están **pendientes de validación**. Las comparaciones son económicas y no implican superioridad terapéutica ni recomendación clínica.
 
+## Módulos económicos
+Importar desde Oncofar, catálogo de medicamentos (con CIMA), costes y acuerdos de gasto: ver `docs/MODULOS-ECONOMICOS.md`.
+
 ## Estructura
 - `modules/mieloma/`: motor de cálculo, datos importados del Excel, auditoría e interfaz (React). Ver su `LEEME.txt`.
 - `core/`: (pendiente) autenticación, roles, auditoría de cambios y catálogo común.
