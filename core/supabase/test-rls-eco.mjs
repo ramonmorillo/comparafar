@@ -14,6 +14,7 @@ alter default privileges in schema public grant all on tables to anon, authentic
 const sql = (f) => fs.readFileSync(path.join(here, f), "utf8");
 await db.exec(sql("001_schema.sql")); await db.exec(sql("002_seed_catalog.sql"));
 await db.exec(sql("003_modulos_economicos.sql")); await db.exec(sql("003_modulos_economicos.sql")); // idempotente
+await db.exec(sql("004_anulaciones.sql")); await db.exec(sql("004_anulaciones.sql")); // idempotente
 const ids = {};
 for (const n of ["admin", "editor", "lector", "revisor"]) ids[n] = (await db.query("insert into auth.users(email) values ($1) returning id", [n + "@x.es"])).rows[0].id;
 await db.exec("update profiles set role='admin' where email='admin@x.es'; update profiles set role='editor' where email='editor@x.es'; update profiles set role='revisor' where email='revisor@x.es';");
@@ -58,4 +59,27 @@ t("alias único por texto normalizado", (await as("editor", `insert into ref_ali
 // auditoría
 const au = await as("admin", "select user_email, entity from audit_log where entity in ('price_versions','agreements','spend_entries') order by id");
 t("auditoría registra al editor en precios, acuerdos y gasto", au.rows.length >= 5 && au.rows.every((r) => r.user_email === "editor@x.es") && ["price_versions", "agreements", "spend_entries"].every((e) => au.rows.some((r) => r.entity === e)));
+// anulaciones (004)
+const denied = (r) => !r.ok || (r.rows || []).length === 0;   // sin permiso: error, o 0 filas afectadas por RLS
+const VOID = (tbl, id, reason = "Error de captura") => [`update ${tbl} set voided_at=now(), void_reason=$2 where id=$1 returning id`, [id, reason]];
+t("el editor no puede anular un precio", !(await as("editor", ...VOID("price_versions", "V1"))).ok);
+t("anular exige motivo", !(await as("revisor", "update price_versions set voided_at=now() where id='V1'")).ok && !(await as("revisor", ...VOID("price_versions", "V1", "   "))).ok);
+t("al anular no se puede cambiar otro campo", !(await as("revisor", "update price_versions set voided_at=now(), void_reason='x', price_units=1 where id='V3'")).ok);
+const v1 = await as("revisor", ...VOID("price_versions", "V1", "Precio mal transcrito"));
+t("el revisor anula un precio con motivo", v1.ok && v1.rows.length === 1);
+const v1r = (await as("admin", "select voided_at is not null as anulado, voided_by = $1 as quien, void_reason from price_versions where id='V1'", [ids.revisor])).rows[0];
+t("queda anulado con autor y motivo", v1r.anulado === true && v1r.quien === true && v1r.void_reason === "Precio mal transcrito");
+t("una anulación no se repite, ni se deshace, ni se modifica", !(await as("admin", ...VOID("price_versions", "V1", "otra"))).ok && !(await as("admin", "update price_versions set voided_at=null, void_reason=null, voided_by=null where id='V1'")).ok && !(await as("admin", "update price_versions set valid_to='2026-12-20' where id='V1'")).ok);
+t("un precio anulado no bloquea la vigencia corregida", (await as("editor", ...pv("V6", { from: "2026-12-01", to: "2026-12-31", price: 190000 }))).ok);
+t("el lector no ve registros anulados; el editor sí (histórico)", (await as("lector", "select count(*)::int c from price_versions where voided_at is not null")).rows[0].c === 0 && (await as("editor", "select count(*)::int c from price_versions where voided_at is not null")).rows[0].c === 1);
+t("nadie inserta un registro ya anulado", !(await as("editor", `insert into price_versions(id,presentation_id,price_units,purchase_unit,content_per_unit,vat_mode,source,valid_from,voided_at,void_reason,voided_by) values ('VZ','C05',1,'vial',1,'sin_iva','s','2030-01-01',now(),'x','00000000-0000-0000-0000-000000000001')`)).ok);
+t("gasto: el editor no anula; el revisor sí; no se repite", denied(await as("editor", ...VOID("spend_entries", "E1"))) && (await as("revisor", ...VOID("spend_entries", "E1", "Importe de otro periodo"))).ok && !(await as("revisor", ...VOID("spend_entries", "E1"))).ok);
+t("gasto anulado: el lector no lo ve; el editor sí; el importe no cambia", (await as("editor", "select amount_cents from spend_entries where id='E1' and voided_at is not null")).rows[0].amount_cents === 120000 && denied(await as("lector", "update spend_entries set voided_at=now(), void_reason='x' returning id")));
+const ph = (await as("editor", "select id from price_history order by id limit 1")).rows[0].id;
+t("price_history: el editor no anula; el revisor sí", denied(await as("editor", "update price_history set voided_at=now(), void_reason='x' where id=$1 returning id", [ph])) && (await as("revisor", "update price_history set voided_at=now(), void_reason='Duplicado' where id=$1 returning id", [ph])).rows.length === 1);
+t("price_history anulado: el lector no lo ve, el editor sí; el precio no cambia", (await as("lector", "select count(*)::int c from price_history where id=$1", [ph])).rows[0].c === 0 && (await as("editor", "select price from price_history where id=$1 and voided_at is not null", [ph])).rows.length === 1 && !(await as("revisor", "update price_history set price=1 where id=$1", [ph])).ok);
+const aud = (await as("admin", "select entity, entity_id, action, user_email, detail from audit_log where action='anular' order by id")).rows;
+t("auditoría: una entrada «anular» por anulación, con autor y motivo", aud.length === 3 && aud.every((r) => r.user_email === "revisor@x.es" && r.detail.reason) && ["price_versions", "spend_entries", "price_history"].every((e) => aud.some((r) => r.entity === e)));
+t("la anulación no genera además una entrada «update»", (await as("admin", "select count(*)::int c from audit_log where entity='price_versions' and entity_id='V1' and action='update'")).rows[0].c === 0);
+t("tras 004: TRUNCATE sigue vetado y anon sigue sin acceso", !(await as("admin", "truncate price_versions")).ok && !(await as("admin", "truncate price_history")).ok && !(await as("anon", "select * from spend_entries")).ok && !(await as("anon", "update price_history set voided_at=now()")).ok);
 console.log(bad ? `\n${bad} fallo(s)` : "\nRLS de módulos económicos correcto"); process.exit(bad ? 1 : 0);

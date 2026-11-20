@@ -119,7 +119,7 @@ function rawAdjustment(ag, base, exceeded) {
 // ctx: { S, schemes?, items, asOf } → evaluación de todos los acuerdos vigentes (o de los pedidos).
 export function evaluateAgreements(S, { items, asOf, only } = {}) {
   const ags = (S.agreements || []).filter((a) => (!only || only.includes(a.id)));
-  const entries = S.spendEntries || [];
+  const entries = (S.spendEntries || []).filter((e) => !e.voided);   // el gasto anulado no computa
   const evals = ags.map((ag) => evalOne(S, ag, items || [], entries, asOf));
   // Interacción entre acuerdos coincidentes
   const act = evals.filter((e) => e.active);

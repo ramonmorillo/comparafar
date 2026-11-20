@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as cloud from "./cloud.js";
-import { diffCatalog, diffSchemes, isConflict } from "./cloudMap.js";
+import { diffCatalog, diffSchemes, diffHistoryVoids, isConflict } from "./cloudMap.js";
 import { diffEco, ecoDiffEmpty, mergeEco, isMissingTable } from "./cloudEco.js";
 import { CLOUD } from "./cloudConfig.js";
 
@@ -66,10 +66,12 @@ export function useCloudSync(S, setS) {
       const dc = diffCatalog(cur.catalog, snap.current.catalog);
       const ds = diffSchemes(cur.userSchemes || [], snap.current.schemes);
       const de = !ecoOff.current && snap.current.eco ? diffEco(ecoSlice(cur), snap.current.eco) : null;
-      if (!dc.upserts.length && !dc.prices.length && !ds.inserts.length && !ds.updates.length && (!de || ecoDiffEmpty(de))) return;
+      const hv = !ecoOff.current ? diffHistoryVoids(cur.catalog, snap.current.catalog) : [];   // anulaciones en price_history (migración 004)
+      if (!dc.upserts.length && !dc.prices.length && !ds.inserts.length && !ds.updates.length && !hv.length && (!de || ecoDiffEmpty(de))) return;
       pushing.current = true; upd({ busy: true });
       try {
         await cloud.pushCatalog(dc); await cloud.pushSchemes(ds); if (de && !ecoDiffEmpty(de)) await cloud.pushEco(de);
+        if ((de && (de.voidVersions.length || de.voidSpend.length)) || hv.length) await cloud.pushVoids({ versions: de ? de.voidVersions : [], spend: de ? de.voidSpend : [], history: hv });
         await pull(); upd({ msg: null });
       } catch (e) {
         const m = isConflict(e) ? e.message + " Se ha recargado la versión de la nube; vuelve a aplicar tu cambio." : "No se pudo guardar en la nube: " + (e.message || e) + " Se ha recargado la versión de la nube.";

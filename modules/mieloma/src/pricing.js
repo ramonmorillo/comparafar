@@ -34,7 +34,7 @@ export function validateVersion(v) {
 
 // Versiones derivadas del historial heredado: cada entrada vale hasta el día anterior a la siguiente.
 export function legacyVersions(item) {
-  const h = (item.history || []).map((x, i) => ({ x, i })).sort((a, b) => (a.x.from || "").localeCompare(b.x.from || "") || a.i - b.i);
+  const h = (item.history || []).map((x, i) => ({ x, i })).filter(({ x }) => !x.voided).sort((a, b) => (a.x.from || "").localeCompare(b.x.from || "") || a.i - b.i);
   return h.map(({ x, i }, k) => {
     const nxt = h[k + 1] && h[k + 1].x.from;
     return {
@@ -48,22 +48,24 @@ export function legacyVersions(item) {
 // equivalente (p. ej. un precio añadido después desde la pantalla «Precios»). Así Costes y el motor heredado ven los mismos precios:
 // en ambos gana la entrada con fecha de inicio más reciente.
 const legacyKey = (v) => `${v.from || ""}|${Number(v.price)}|${v.source || ""}`;
-export function versionsFor(state, presId) {
-  const own = (state.priceVersions || []).filter((v) => v.presId === presId);
+// Las versiones anuladas no se devuelven salvo includeVoided (historial). `seen` las cuenta igualmente para que una anulada no «reaparezca» desde el historial heredado.
+export function versionsFor(state, presId, { includeVoided = false } = {}) {
+  const ownAll = (state.priceVersions || []).filter((v) => v.presId === presId);
+  const own = includeVoided ? ownAll : ownAll.filter((v) => !v.voided);
   const it = (state.catalog || []).find((c) => c.id === presId);
-  if (!own.length) return it ? legacyVersions(it) : [];
+  if (!ownAll.length) return it ? legacyVersions(it) : [];
   if (!it) return own;
-  const seen = new Set(own.map(legacyKey));
+  const seen = new Set(ownAll.map(legacyKey));
   return [...own, ...legacyVersions(it).filter((l) => !seen.has(legacyKey(l))).map((l) => ({ ...l, origin: "legacy-externo" }))];
 }
 
 export function findOverlap(versions, cand, ignoreId) {
-  return versions.find((v) => v.id !== ignoreId && keyOf(v) === keyOf(cand) && start(v) <= end(cand) && start(cand) <= end(v)) || null;
+  return versions.find((v) => !v.voided && v.id !== ignoreId && keyOf(v) === keyOf(cand) && start(v) <= end(cand) && start(cand) <= end(v)) || null;
 }
 
 // Resuelve el precio aplicable en una fecha. Prioriza el centro exacto y luego el general; misma condición.
 export function resolvePrice(versions, date, { center = "", condition = DEFAULT_CONDITION } = {}) {
-  const hit = (c) => versions.filter((v) => (v.center || "") === c && (v.condition || DEFAULT_CONDITION) === condition && start(v) <= date && date <= end(v)).sort((a, b) => start(b).localeCompare(start(a)))[0];
+  const hit = (c) => versions.filter((v) => !v.voided && (v.center || "") === c && (v.condition || DEFAULT_CONDITION) === condition && start(v) <= date && date <= end(v)).sort((a, b) => start(b).localeCompare(start(a)))[0];
   return (center && hit(center)) || hit("") || null;
 }
 
@@ -114,7 +116,7 @@ export function addPriceVersion(state, input, opts = {}) {
     from: input.from, to: input.to || null, note: input.note || "", priceType: input.priceType || "", origin: "manual", by: opts.user || null, at: now };
   const clash = findOverlap(list, nv);
   if (clash) {
-    const closable = opts.closePrevious && !clash.to && start(clash) < nv.from && !list.some((v) => v !== clash && v.id !== clash.id && keyOf(v) === keyOf(nv) && start(v) > start(clash) && start(v) <= end(nv));
+    const closable = opts.closePrevious && !clash.to && start(clash) < nv.from && !list.some((v) => !v.voided && v !== clash && v.id !== clash.id && keyOf(v) === keyOf(nv) && start(v) > start(clash) && start(v) <= end(nv));
     if (!closable) throw new PriceError(`La vigencia se solapa con la versión vigente desde ${clash.from || "origen"}${clash.to ? " hasta " + clash.to : " (sin fecha de fin)"}. Cierra esa versión o ajusta las fechas.`, "overlap");
     list = list.map((v) => (v.id === clash.id ? { ...v, to: addDays(nv.from, -1), closedBy: nv.id, closedAt: now } : v));
     events.push(`Vigencia anterior cerrada el ${addDays(nv.from, -1)}.`);
@@ -127,3 +129,39 @@ export function addPriceVersion(state, input, opts = {}) {
 
 // Versión «comercial»: condición diferenciada o específica de un centro (requiere acceso a condiciones comerciales).
 export const isCommercialVersion = (v) => (v.condition && v.condition !== DEFAULT_CONDITION) || !!v.center;
+
+/* ---------- Anulación (no se borra: queda en el histórico con motivo, autor y fecha) ---------- */
+export class VoidError extends Error { constructor(m, code) { super(m); this.code = code; } }
+const needReason = (reason) => { const r = String(reason == null ? "" : reason).trim(); if (!r) throw new VoidError("El motivo de la anulación es obligatorio.", "reason"); return r; };
+const stamp = (reason, { user, now }) => ({ at: now || new Date().toISOString(), by: user || null, reason: needReason(reason) });
+
+// Anula una versión de precio. Si es un precio general (el que Costes refleja en el historial heredado), anula también su entrada
+// del historial para que la Calculadora y el motor heredado dejen de usarla. Devuelve los trozos de estado a reemplazar.
+export function voidPriceVersion(state, versionId, reason, opts = {}) {
+  const v = (state.priceVersions || []).find((x) => x.id === versionId);
+  if (!v) throw new VoidError("No se encuentra la versión de precio.", "missing");
+  if (v.voided) throw new VoidError("Esta versión ya está anulada.", "already");
+  const mark = stamp(reason, opts);
+  const priceVersions = state.priceVersions.map((x) => (x.id === versionId ? { ...x, voided: mark } : x));
+  let mirrored = false;
+  const general = (v.center || "") === "" && (v.condition || DEFAULT_CONDITION) === DEFAULT_CONDITION;
+  const catalog = (state.catalog || []).map((c) => {
+    if (!general || c.id !== v.presId) return c;
+    const k = legacyKey(v); const i = (c.history || []).findIndex((h) => !h.voided && legacyKey(h) === k);
+    if (i < 0) return c;
+    mirrored = true;
+    return { ...c, history: c.history.map((h, j) => (j === i ? { ...h, voided: mark } : h)) };
+  });
+  const prev = priceVersions.filter((x) => !x.voided && x.id !== versionId && keyOf(x) === keyOf(v) && x.to && x.closedBy === versionId);
+  const reopened = prev.length ? prev.map((x) => x.id) : [];
+  return { priceVersions, catalog, mirrored, version: priceVersions.find((x) => x.id === versionId),
+    warning: reopened.length ? "La versión anterior seguirá cerrada: registra la versión correcta para que haya un precio vigente en ese periodo." : null };
+}
+
+export function voidSpendEntry(list, id, reason, opts = {}) {
+  const e = (list || []).find((x) => x.id === id);
+  if (!e) throw new VoidError("No se encuentra el registro de gasto.", "missing");
+  if (e.voided) throw new VoidError("Este registro ya está anulado.", "already");
+  const mark = stamp(reason, opts);
+  return list.map((x) => (x.id === id ? { ...x, voided: mark } : x));
+}

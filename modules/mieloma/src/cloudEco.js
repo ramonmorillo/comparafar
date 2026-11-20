@@ -7,6 +7,8 @@
 import { stableStringify } from "./cloudMap.js";
 
 const nul = (v) => (v === undefined || v === "" ? null : v);
+// Anulación: la nube guarda el uuid de quien anula (no el correo); `by` queda vacío salvo en el propio navegador de quien anuló.
+const voidOf = (r) => (r.voided_at ? { voided: { at: r.voided_at, by: null, reason: r.void_reason || "" } } : {});
 
 /* ---------- Catálogo de referencia ---------- */
 export const ingredientToRow = (i) => ({ id: i.id, name: i.name, name_norm: i.nameNorm, source: i.source || {}, cima: i.cima || null });
@@ -30,7 +32,8 @@ export function versionToRow(v) {
 export function rowToVersion(r) {
   return { id: r.id, presId: r.presentation_id, center: r.center || "", condition: r.condition || "general", price: Number(r.price_units) / 10000, priceUnits: Number(r.price_units), currency: "EUR",
     purchaseUnit: r.purchase_unit, contentPerUnit: r.content_per_unit, vat: { mode: r.vat_mode, rate: r.vat_rate == null ? null : Number(r.vat_rate) }, source: r.source,
-    from: r.valid_from, to: r.valid_to || null, priceType: r.price_type || "", note: r.note || "", origin: r.origin || "manual", at: r.created_at || null };
+    from: r.valid_from, to: r.valid_to || null, priceType: r.price_type || "", note: r.note || "", origin: r.origin || "manual", at: r.created_at || null,
+    ...voidOf(r) };
 }
 
 /* ---------- Acuerdos ---------- */
@@ -51,7 +54,7 @@ export function rowToAgreement(r, versions = []) {
 
 /* ---------- Gasto registrado ---------- */
 export const spendToRow = (e) => ({ id: e.id, kind: e.kind, agreement_id: e.agreementId || null, scope: e.scope || {}, from_date: e.from || null, to_date: e.to || null, as_of: e.asOf, amount_cents: e.amountCents, source: e.source });
-export const rowToSpend = (r) => ({ id: r.id, kind: r.kind, agreementId: r.agreement_id || null, scope: r.scope || {}, from: r.from_date || null, to: r.to_date || null, asOf: r.as_of, amountCents: Number(r.amount_cents), source: r.source, by: null, at: r.created_at || null });
+export const rowToSpend = (r) => ({ id: r.id, kind: r.kind, agreementId: r.agreement_id || null, scope: r.scope || {}, from: r.from_date || null, to: r.to_date || null, asOf: r.as_of, amountCents: Number(r.amount_cents), source: r.source, by: null, at: r.created_at || null, ...voidOf(r) });
 
 /* ---------- Diferencias: qué enviar para que la nube iguale al estado local ---------- */
 const byId = (xs) => Object.fromEntries((xs || []).map((x) => [x.id, x]));
@@ -63,12 +66,17 @@ const addedOrChanged = (local, remote, toRow) => { const rm = byId(remote); retu
 export function diffEco(local, remote) {
   const lr = local.ref || {}, rr = remote.ref || {};
   const rv = byId(remote.priceVersions);
-  const newVersions = [], closures = [];
+  const newVersions = [], closures = [], voidVersions = [];
   for (const v of local.priceVersions || []) {
     const r = rv[v.id];
     if (!r) newVersions.push(versionToRow(v));
-    else if (!r.to && v.to) closures.push({ id: v.id, valid_to: v.to });   // único cambio admitido por la base
+    else {
+      if (!r.to && v.to && !r.voided) closures.push({ id: v.id, valid_to: v.to });   // único cambio admitido por la base
+      if (v.voided && !r.voided) voidVersions.push({ id: v.id, reason: v.voided.reason });
+    }
   }
+  const rs = byId(remote.spendEntries);
+  const voidSpend = (local.spendEntries || []).filter((e) => e.voided && rs[e.id] && !rs[e.id].voided).map((e) => ({ id: e.id, reason: e.voided.reason }));
   const ra = byId(remote.agreements);
   const agInserts = [], agUpdates = [];
   for (const a of local.agreements || []) {
@@ -84,11 +92,11 @@ export function diffEco(local, remote) {
     aliases: addedOnly(lr.aliases, rr.aliases, aliasToRow),
     medicines: addedOrChanged(lr.medicines, rr.medicines, medicineToRow),
     presentations: addedOrChanged(lr.presentations, rr.presentations, presentationToRow),
-    newVersions, closures, agInserts, agUpdates,
+    newVersions, closures, voidVersions, voidSpend, agInserts, agUpdates,
     spend: addedOnly(local.spendEntries, remote.spendEntries, spendToRow),
   };
 }
-export const ecoDiffEmpty = (d) => !(d.ingredients.length || d.aliases.length || d.medicines.length || d.presentations.length || d.newVersions.length || d.closures.length || d.agInserts.length || d.agUpdates.length || d.spend.length);
+export const ecoDiffEmpty = (d) => !(d.ingredients.length || d.aliases.length || d.medicines.length || d.presentations.length || d.newVersions.length || d.closures.length || d.voidVersions.length || d.voidSpend.length || d.agInserts.length || d.agUpdates.length || d.spend.length);
 
 // Estado remoto → trozos de estado de la app. `canSeeCommercial`: editor/revisor/admin. Un lector no recibe (ni sustituye) condiciones comerciales.
 export function ecoFromRows(rows, { canSeeCommercial }) {
@@ -128,8 +136,8 @@ export function mergeEco(local, remoteParts) {
     medicines: mergeList(rr.medicines, lr.medicines, () => false),
     presentations: mergeList(rr.presentations, lr.presentations, () => false),
   };
-  if (remoteParts.priceVersions) out.priceVersions = mergeList(keepLocalMeta(remoteParts.priceVersions, local.priceVersions, ["by", "at", "closedBy", "closedAt"]), local.priceVersions, (l, r) => !!l.to && !r.to);
+  if (remoteParts.priceVersions) out.priceVersions = mergeList(keepLocalMeta(remoteParts.priceVersions, local.priceVersions, ["by", "at", "closedBy", "closedAt", "voided"]), local.priceVersions, (l, r) => (!!l.to && !r.to) || (!!l.voided && !r.voided));
   if (remoteParts.agreements) out.agreements = mergeList(remoteParts.agreements, local.agreements, (l, r) => (l.version || 1) > r.version);
-  if (remoteParts.spendEntries) out.spendEntries = mergeList(keepLocalMeta(remoteParts.spendEntries, local.spendEntries), local.spendEntries, () => false);
+  if (remoteParts.spendEntries) out.spendEntries = mergeList(keepLocalMeta(remoteParts.spendEntries, local.spendEntries, ["by", "at", "voided"]), local.spendEntries, (l, r) => !!l.voided && !r.voided);
   return out;
 }

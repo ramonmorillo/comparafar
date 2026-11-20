@@ -11,7 +11,7 @@ test("rowsToCatalog une precios al ítem en orden cronológico", () => {
   const [c] = rowsToCatalog(items, prices);
   assert.equal(c.excelCell, "B4");
   assert.deepEqual(c.history.map(h => h.price), [10, 20]);
-  assert.deepEqual(c.history[0], { price: 10, from: "2026-01-01", source: "A", type: "excel", note: "n" });
+  assert.deepEqual(c.history[0], { price: 10, from: "2026-01-01", source: "A", type: "excel", note: "n", rid: 1 });
 });
 
 test("itemToRow es inverso de rowsToCatalog (sin historial)", () => {

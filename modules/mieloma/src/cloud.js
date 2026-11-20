@@ -65,6 +65,18 @@ export async function pushEco(d) {
   }
   if (d.spend.length) must(await c.from("spend_entries").insert(d.spend));
 }
+// Anulaciones (migración 004): solo revisor/admin. Si no se anula ninguna fila (sin permiso o ya anulada por otra persona) se avisa.
+// La base fija autor y fecha; aquí solo se envía el motivo.
+export async function pushVoids({ versions = [], spend = [], history = [] }) {
+  const c = client();
+  const run = async (table, id, reason) => {
+    const r = must(await c.from(table).update({ voided_at: new Date().toISOString(), void_reason: reason }).eq("id", id).is("voided_at", null).select("id"));
+    if (!r.length) throw new Error("No se pudo anular el registro " + id + " en la nube (¿ya estaba anulado o tu rol no lo permite?).");
+  };
+  for (const x of versions) await run("price_versions", x.id, x.reason);
+  for (const x of history) await run("price_history", x.id, x.reason);
+  for (const x of spend) await run("spend_entries", x.id, x.reason);
+}
 export function subscribe(onChange) {
   const c = client();
   const ch = c.channel("comparafar-sync");

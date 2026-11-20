@@ -6,7 +6,8 @@ export function rowsToCatalog(items, prices) {
     id: r.id, drug: r.drug, label: r.label, mg: r.mg == null ? null : Number(r.mg), unit: r.unit,
     oral: !!r.oral, route: r.route, center: r.center, excelCell: r.excel_cell, status: r.status, archived: !!r.archived,
     history: (by[r.id] || []).slice().sort((a, b) => String(a.added_at).localeCompare(String(b.added_at)) || a.id - b.id)
-      .map(p => ({ price: Number(p.price), from: p.valid_from, source: p.source, type: p.price_type, note: p.note })),
+      .map(p => ({ price: Number(p.price), from: p.valid_from, source: p.source, type: p.price_type, note: p.note, rid: p.id,
+        ...(p.voided_at ? { voided: { at: p.voided_at, by: null, reason: p.void_reason || "" } } : {}) })),
   }));
 }
 export function itemToRow(it) {
@@ -59,4 +60,14 @@ export function diffSchemes(local, remote) {
     else if (norm(s) !== norm(r)) updates.push({ scheme: s, expected: r.version });
   }
   return { inserts, updates };
+}
+
+// Anulaciones pendientes de enviar en price_history: entradas anuladas en local cuya fila en la nube aún no lo está.
+// Las filas se identifican por `rid` (id de fila de la nube); una entrada local sin rid aún no se ha subido y no se puede anular allí.
+export function diffHistoryVoids(local, remote) {
+  const rm = {};
+  for (const it of remote || []) for (const h of it.history || []) if (h.rid != null) rm[h.rid] = h;
+  const out = [];
+  for (const it of local || []) for (const h of it.history || []) if (h.voided && h.rid != null && rm[h.rid] && !rm[h.rid].voided) out.push({ id: h.rid, reason: h.voided.reason });
+  return out;
 }
