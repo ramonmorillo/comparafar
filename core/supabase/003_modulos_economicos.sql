@@ -208,7 +208,7 @@ drop policy if exists spend_entries_insert on public.spend_entries;
 create policy spend_entries_insert on public.spend_entries for insert to authenticated with check (public.app_role() in ('editor','revisor','admin'));
 
 -- 6) Permisos explícitos: sin acceso anónimo, sin borrados, historiales inmutables --------------------------------------
-revoke all on public.ref_ingredients, public.ref_medicines, public.ref_presentations, public.ref_aliases, public.price_versions, public.agreements, public.agreement_versions, public.spend_entries from anon;
+revoke all on public.ref_ingredients, public.ref_medicines, public.ref_presentations, public.ref_aliases, public.price_versions, public.agreements, public.agreement_versions, public.spend_entries from anon, authenticated;  -- parte de cero: Supabase concede por defecto todos los privilegios (incl. TRUNCATE y UPDATE completo)
 grant select, insert on public.ref_ingredients, public.ref_aliases to authenticated;
 grant select, insert, update on public.ref_medicines, public.ref_presentations to authenticated;
 grant select, insert on public.price_versions to authenticated;

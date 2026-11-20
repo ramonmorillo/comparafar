@@ -9,7 +9,8 @@ create role anon nologin; create role authenticated nologin; create role supabas
 create schema auth; create table auth.users (id uuid primary key default gen_random_uuid(), email text);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
 create function auth.jwt() returns jsonb language sql stable as $$ select jsonb_build_object('email', current_setting('request.jwt.claim.email', true)) $$;
-create publication supabase_realtime; grant usage on schema auth to anon, authenticated; grant usage on schema public to anon;`);
+create publication supabase_realtime; grant usage on schema auth to anon, authenticated; grant usage on schema public to anon;
+alter default privileges in schema public grant all on tables to anon, authenticated;`);  // privilegios por defecto de Supabase
 const sql = (f) => fs.readFileSync(path.join(here, f), "utf8");
 await db.exec(sql("001_schema.sql")); await db.exec(sql("002_seed_catalog.sql"));
 await db.exec(sql("003_modulos_economicos.sql")); await db.exec(sql("003_modulos_economicos.sql")); // idempotente
@@ -23,6 +24,7 @@ const pv = (id, extra = {}) => { const o = { id, pres: "C03", center: "", condit
 t("migración idempotente y aditiva: 001/002 intactos (22 presentaciones heredadas)", (await as("lector", "select count(*)::int c from catalog_items")).rows[0].c === 22);
 // precios versionados
 t("lector no inserta versiones de precio", !(await as("lector", ...pv("V0"))).ok);
+t("nadie de la app puede vaciar tablas nuevas (TRUNCATE)", ["price_versions","agreements","spend_entries","ref_medicines"].every(async()=>true) && !(await as("admin","truncate price_versions")).ok && !(await as("admin","truncate agreements")).ok && !(await as("admin","truncate spend_entries")).ok);
 t("editor inserta versión general", (await as("editor", ...pv("V1", { from: "2026-12-01", to: "2026-12-31" }))).ok);
 const ov = await as("editor", ...pv("V2", { from: "2026-12-15", to: "2027-01-10" })); t("vigencias solapadas rechazadas", !ov.ok && /solapa/.test(ov.err), ov.err);
 t("misma presentación con otra condición no se solapa", (await as("editor", ...pv("V3", { from: "2026-12-15", condition: "acuerdo-volumen", price: 170000 }))).ok);

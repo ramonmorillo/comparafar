@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { CLOUD } from "./cloudConfig.js";
 import { rowsToCatalog, itemToRow, priceToRow, schemeToRow, rowToScheme, isConflict } from "./cloudMap.js";
+import { ecoFromRows } from "./cloudEco.js";
 
 let sb = null;
 export const client = () => sb || (sb = createClient(CLOUD.url, CLOUD.key, { auth: { persistSession: true, autoRefreshToken: true } }));
@@ -35,10 +36,39 @@ export async function pushSchemes({ inserts, updates }) {
     if (!r.length) { const e = new Error("Conflicto de versión: el esquema " + id + " ha cambiado en la nube."); e.code = "40001"; throw e; }
   }
 }
+/* ---------- Módulos económicos (migración 003) ---------- */
+// Un lector no recibe condiciones comerciales (la RLS tampoco se las daría): no se piden.
+export async function pullEco({ canSeeCommercial }) {
+  const c = client();
+  const q = (t, order = "id") => c.from(t).select("*").order(order).then(must);
+  const [ingredients, medicines, presentations, aliases] = await Promise.all([q("ref_ingredients"), q("ref_medicines"), q("ref_presentations"), q("ref_aliases")]);
+  const rows = { ingredients, medicines, presentations, aliases };
+  if (canSeeCommercial) {
+    [rows.priceVersions, rows.agreements, rows.agreementVersions, rows.spend] = await Promise.all([q("price_versions"), q("agreements"), q("agreement_versions"), q("spend_entries")]);
+  }
+  return ecoFromRows(rows, { canSeeCommercial });
+}
+// Orden por dependencias: principios activos → medicamentos → presentaciones → alias → precios → acuerdos → gasto.
+export async function pushEco(d) {
+  const c = client();
+  if (d.ingredients.length) must(await c.from("ref_ingredients").insert(d.ingredients));
+  if (d.medicines.length) must(await c.from("ref_medicines").upsert(d.medicines));
+  if (d.presentations.length) must(await c.from("ref_presentations").upsert(d.presentations));
+  if (d.aliases.length) must(await c.from("ref_aliases").insert(d.aliases));
+  if (d.newVersions.length) must(await c.from("price_versions").insert(d.newVersions));
+  for (const x of d.closures) must(await c.from("price_versions").update({ valid_to: x.valid_to }).eq("id", x.id).is("valid_to", null).select("id"));
+  if (d.agInserts.length) must(await c.from("agreements").insert(d.agInserts));
+  for (const u of d.agUpdates) {
+    const { id, ...rest } = u.row;
+    const r = must(await c.from("agreements").update(rest).eq("id", id).eq("version", u.expected).select("id"));
+    if (!r.length) { const e = new Error("Conflicto de versión: el acuerdo " + id + " ha cambiado en la nube."); e.code = "40001"; throw e; }
+  }
+  if (d.spend.length) must(await c.from("spend_entries").insert(d.spend));
+}
 export function subscribe(onChange) {
   const c = client();
   const ch = c.channel("comparafar-sync");
-  for (const t of ["catalog_items", "price_history", "schemes"]) ch.on("postgres_changes", { event: "*", schema: "public", table: t }, onChange);
+  for (const t of ["catalog_items", "price_history", "schemes", ...(CLOUD.eco ? ["ref_medicines", "ref_presentations", "price_versions", "agreements", "spend_entries"] : [])]) ch.on("postgres_changes", { event: "*", schema: "public", table: t }, onChange);
   ch.subscribe();
   return () => { c.removeChannel(ch); };
 }

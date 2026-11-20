@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as cloud from "./cloud.js";
 import { diffCatalog, diffSchemes, isConflict } from "./cloudMap.js";
+import { diffEco, ecoDiffEmpty, mergeEco, isMissingTable } from "./cloudEco.js";
+import { CLOUD } from "./cloudConfig.js";
 
 const ROLE_TXT = { lector: "solo lectura", editor: "editor", revisor: "revisor", admin: "administrador" };
 const canEdit = (r) => r === "editor" || r === "revisor" || r === "admin";
+const ecoSlice = (S) => ({ ref: S.ref, priceVersions: S.priceVersions, agreements: S.agreements, spendEntries: S.spendEntries });
 
 // Sincroniza catálogo/precios/esquemas con Supabase. Los pacientes NO se sincronizan nunca.
 export function useCloudSync(S, setS) {
   const [st, setSt] = useState({ status: typeof document === "undefined" ? "local" : "boot", role: null, email: null, msg: null, at: null, busy: false });
-  const snap = useRef({ catalog: [], schemes: {} });
+  const snap = useRef({ catalog: [], schemes: {}, eco: null });
+  const ecoOff = useRef(!CLOUD.eco);   // se apaga solo si 003 aún no está aplicada
+  const roleRef = useRef(null);
   const pushing = useRef(false);
   const Sref = useRef(S); Sref.current = S;
   const upd = (p) => setSt((s) => ({ ...s, ...p }));
@@ -16,13 +21,20 @@ export function useCloudSync(S, setS) {
   const pull = useCallback(async () => {
     const r = await cloud.pullAll();
     snap.current = { catalog: r.catalog, schemes: Object.fromEntries(r.schemes.map((s) => [s.id, s])) };
-    setS((s) => ({ ...s, catalog: r.catalog.length ? r.catalog : s.catalog, userSchemes: r.schemes }));
+    let eco = null;
+    if (!ecoOff.current) {
+      try { eco = await cloud.pullEco({ canSeeCommercial: canEdit(roleRef.current) }); }
+      catch (e) { if (isMissingTable(e)) ecoOff.current = true; else throw e; }
+    }
+    snap.current.eco = eco;
+    setS((s) => ({ ...s, catalog: r.catalog.length ? r.catalog : s.catalog, userSchemes: r.schemes, ...(eco ? mergeEco(ecoSlice(s), eco) : {}) }));
     upd({ at: new Date(), busy: false });
   }, [setS]);
 
   const start = useCallback(async (session) => {
     const p = await cloud.getProfile(session.user.id);
     if (!p || !p.active) { upd({ status: "login", msg: "Tu usuario no está activo. Pide acceso a un administrador." }); await cloud.signOut(); return; }
+    roleRef.current = p.role;
     upd({ status: "ready", role: p.role, email: p.email || session.user.email, msg: null });
     await pull();
   }, [pull]);
@@ -53,10 +65,11 @@ export function useCloudSync(S, setS) {
       const cur = Sref.current;
       const dc = diffCatalog(cur.catalog, snap.current.catalog);
       const ds = diffSchemes(cur.userSchemes || [], snap.current.schemes);
-      if (!dc.upserts.length && !dc.prices.length && !ds.inserts.length && !ds.updates.length) return;
+      const de = !ecoOff.current && snap.current.eco ? diffEco(ecoSlice(cur), snap.current.eco) : null;
+      if (!dc.upserts.length && !dc.prices.length && !ds.inserts.length && !ds.updates.length && (!de || ecoDiffEmpty(de))) return;
       pushing.current = true; upd({ busy: true });
       try {
-        await cloud.pushCatalog(dc); await cloud.pushSchemes(ds);
+        await cloud.pushCatalog(dc); await cloud.pushSchemes(ds); if (de && !ecoDiffEmpty(de)) await cloud.pushEco(de);
         await pull(); upd({ msg: null });
       } catch (e) {
         const m = isConflict(e) ? e.message + " Se ha recargado la versión de la nube; vuelve a aplicar tu cambio." : "No se pudo guardar en la nube: " + (e.message || e) + " Se ha recargado la versión de la nube.";
@@ -65,7 +78,7 @@ export function useCloudSync(S, setS) {
       } finally { pushing.current = false; }
     }, 700);
     return () => clearTimeout(id);
-  }, [S.catalog, S.userSchemes, st.status, st.role, pull]);
+  }, [S.catalog, S.userSchemes, S.ref, S.priceVersions, S.agreements, S.spendEntries, st.status, st.role, pull]);
 
   const login = useCallback(async (email, pw) => {
     try { upd({ busy: true, msg: null }); const s = await cloud.signIn(email, pw); await start(s); }
