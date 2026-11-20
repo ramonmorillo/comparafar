@@ -4,7 +4,7 @@ import { useApp, Btn, Field, NumInput, Select, Check, Card, Banner, Tabs, Chip, 
 import { extractPdf, hashBytes } from "./pdftext.js";
 import { parseOncofar, parseDose, parseDaysLiteral, PARSER_VERSION } from "./oncofar.js";
 import { buildDraft, manualDraft, findExisting, reviewIssues, confirmDraft, reviseFromPlan, previewPlan, planCalendar, setField, ImportError, currentPlans } from "./importflow.js";
-import { allIngredients, allPresentations, addIngredient, addMedicine, addPresentation, confirmAlias, setConversion, incorporateCima, CatalogError, ensureRef, normalizeName, ingredientName } from "./refcatalog.js";
+import { allIngredients, allPresentations, addIngredient, addMedicine, addPresentation, editMedicine, editPresentation, setArchived, archiveImpact, confirmAlias, setConversion, incorporateCima, CatalogError, ensureRef, normalizeName, ingredientName } from "./refcatalog.js";
 import { createCima, CimaError } from "./cima.js";
 import { evaluateAgreements, spendItems, periodOf, AGREEMENT_TYPES, overlapping } from "./agreements.js";
 import { fmtCents } from "./money.js";
@@ -200,16 +200,38 @@ function IngredientsTab() {
     {err && <Banner kind="warn">{err}</Banner>}
     <div className="tbl-w"><table className="tbl"><thead><tr><th>Principio activo</th><th>Origen</th><th>Identificador oficial</th></tr></thead><tbody>{list.map((i) => <tr key={i.id}><td><b>{i.name}</b></td><td>{SRC_CHIP(i.source)}</td><td className="small">{i.cima ? `CIMA ${i.cima.codigo} (id ${i.cima.id})` : "—"}</td></tr>)}</tbody></table></div></Card>;
 }
+// Archivar / restaurar: reversible, no borra ni toca precios, acuerdos o alias. Solo revisor y admin (lo comprueba la interfaz y la base).
+function ArchiveModal({ kind, item, label, onClose }) {
+  const { S, set } = useApp();
+  const restoring = !!item.archived; const impact = archiveImpact(S, kind, item.id);
+  const go = () => { set((x) => ({ ...x, ref: setArchived(x.ref, kind, item.id, !restoring), log: [{ ts: Date.now(), what: `${restoring ? "Restaurado" : "Archivado"}: ${label}`, by: null }, ...(x.log || [])].slice(0, 100) })); onClose(); };
+  return <Modal title={restoring ? "Restaurar" : "Archivar"} onClose={onClose} footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn variant="primary" onClick={go}>{restoring ? "Restaurar" : "Archivar"}</Btn></>}>
+    <p>{restoring ? "Volverá a ofrecerse en listas y en la correspondencia con Oncofar." : <>Dejará de ofrecerse en listas y en la correspondencia con Oncofar. <b>No se borra nada</b> y se puede restaurar.</>} <b>{label}</b></p>
+    {!restoring && (impact.prices > 0 || impact.agreements > 0) && <Banner kind="warn" title="Afecta a datos existentes">{impact.presentations > 0 && <>{impact.presentations} presentación(es) del medicamento. </>}{impact.prices > 0 && <>{impact.prices} versión(es) de precio vigente(s). </>}{impact.agreements > 0 && <>{impact.agreements} acuerdo(s) que apuntan a esto. </>}Seguirán existiendo y computando; revisa si deben cambiarse.</Banner>}
+  </Modal>;
+}
 function MedicinesTab() {
   const { S, set, user, access, schemes } = useApp();
   const ref = ensureRef(S.ref); const [form, setForm] = useState(null); const [err, setErr] = useState(null); const [sel, setSel] = useState(null);
+  const [editM, setEditM] = useState(null); const [archM, setArchM] = useState(null); const [showArch, setShowArch] = useState(false);
   const ings = allIngredients(S);
+  const saveEdit = () => { try { const ref2 = editMedicine(S.ref, editM.id, { name: editM.name, nregistro: editM.nregistro, labtitular: editM.labtitular, forma: editM.forma }, { user }); set((x) => ({ ...x, ref: ref2 })); setEditM(null); setErr(null); } catch (e) { setErr(catErr(e)); } };
   const save = () => { try { const r = addMedicine(S.ref, { name: form.name, ingredients: form.ings.filter((i) => i.ingredientId), nregistro: form.nregistro || undefined }, { user }); set((x) => ({ ...x, ref: r.ref })); setForm(null); setErr(null); } catch (e) { setErr(catErr(e)); } };
   const med = ref.medicines.find((m) => m.id === sel);
   return <>
     <Card title="Medicamentos" actions={<Btn variant="primary" onClick={() => setForm({ name: "", nregistro: "", ings: [{ ingredientId: "", amount: "", unit: "" }] })}>+ Alta manual</Btn>}>
-      {ref.medicines.length === 0 ? <Empty title="Sin medicamentos propios">Añádelos a mano o incorpóralos desde CIMA.</Empty> : <div className="tbl-w"><table className="tbl"><thead><tr><th>Medicamento</th><th>Principios activos</th><th>Origen</th><th /></tr></thead><tbody>{ref.medicines.map((m) => <tr key={m.id}><td><b>{m.name}</b><div className="sub">{m.nregistro ? "Nº registro " + m.nregistro : "sin nº de registro"}{m.labtitular ? " · " + m.labtitular : ""}</div></td><td>{m.ingredients.map((i) => ingredientName(S, i.ingredientId) + (i.amount ? ` ${i.amount} ${i.unit}` : "")).join(" + ")}</td><td>{SRC_CHIP(m.source)}</td><td className="r"><Btn small onClick={() => setSel(m.id)}>Ficha</Btn></td></tr>)}</tbody></table></div>}
+      {ref.medicines.length === 0 ? <Empty title="Sin medicamentos propios">Añádelos a mano o incorpóralos desde CIMA.</Empty> : <div className="tbl-w"><table className="tbl"><thead><tr><th>Medicamento</th><th>Principios activos</th><th>Origen</th><th /></tr></thead><tbody>{ref.medicines.filter((m) => showArch || !m.archived).map((m) => <tr key={m.id} style={m.archived ? { opacity: 0.6 } : undefined}><td><b>{m.name}</b>{m.archived && <> <Chip kind="neutral">Archivado</Chip></>}<div className="sub">{m.nregistro ? "Nº registro " + m.nregistro : "sin nº de registro"}{m.labtitular ? " · " + m.labtitular : ""}</div></td><td>{m.ingredients.map((i) => ingredientName(S, i.ingredientId) + (i.amount ? ` ${i.amount} ${i.unit}` : "")).join(" + ")}</td><td>{SRC_CHIP(m.source)}</td><td className="r"><Btn small onClick={() => setSel(m.id)}>Ficha</Btn>{access.edit && !m.archived && <> <Btn small onClick={() => setEditM({ id: m.id, name: m.name, nregistro: m.nregistro || "", labtitular: m.labtitular || "", forma: m.forma || "" })}>Editar</Btn></>}{access.void && <> <Btn small onClick={() => setArchM(m)}>{m.archived ? "Restaurar" : "Archivar"}</Btn></>}</td></tr>)}</tbody></table></div>}
+      {ref.medicines.some((m) => m.archived) && <label className="small" style={{ display: "block", marginTop: 6 }}><input type="checkbox" checked={showArch} onChange={(e) => setShowArch(e.target.checked)} /> Mostrar medicamentos archivados</label>}
+      {err && <Banner kind="warn">{err}</Banner>}
     </Card>
+    {archM && <ArchiveModal kind="medicine" item={archM} label={archM.name} onClose={() => setArchM(null)} />}
+    {editM && <Modal title="Editar medicamento" onClose={() => setEditM(null)} footer={<><Btn onClick={() => setEditM(null)}>Cancelar</Btn><Btn variant="primary" disabled={!editM.name.trim()} onClick={saveEdit}>Guardar</Btn></>}>
+      <p className="small muted">La composición (principios activos) no se edita aquí: cambiarla alteraría acuerdos y precios ya registrados. Si es otra composición, da de alta un medicamento nuevo.</p>
+      <Field label="Nombre"><input value={editM.name} onChange={(e) => setEditM({ ...editM, name: e.target.value })} aria-label="Nombre del medicamento" /></Field>
+      <Field label="Nº de registro"><input value={editM.nregistro} onChange={(e) => setEditM({ ...editM, nregistro: e.target.value })} aria-label="Número de registro" /></Field>
+      <Field label="Laboratorio titular"><input value={editM.labtitular} onChange={(e) => setEditM({ ...editM, labtitular: e.target.value })} aria-label="Laboratorio titular" /></Field>
+      <Field label="Forma farmacéutica"><input value={editM.forma} onChange={(e) => setEditM({ ...editM, forma: e.target.value })} aria-label="Forma farmacéutica" /></Field>
+    </Modal>}
     {med && <MedicineSheet med={med} onClose={() => setSel(null)} />}
     {form && <Modal title="Alta manual de medicamento" onClose={() => setForm(null)} footer={<><Btn onClick={() => setForm(null)}>Cancelar</Btn><Btn variant="primary" disabled={!form.name.trim() || !form.ings.some((i) => i.ingredientId)} onClick={save}>Crear</Btn></>}>
       <Field label="Nombre del medicamento"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="Nombre del medicamento" /></Field>
@@ -225,7 +247,7 @@ function MedicineSheet({ med, onClose }) {
   const { S, schemes, access } = useApp();
   const asOf = today();
   const mine = allPresentations(S).filter((p) => p.medicineId === med.id);
-  const ags = (S.agreements || []).filter((a) => a.scope.level === "medicamento" ? a.scope.targetId === med.id : a.scope.level === "principio_activo" ? med.ingredients.some((i) => i.ingredientId === a.scope.targetId) : mine.some((p) => p.id === a.scope.targetId));
+  const ags = (S.agreements || []).filter((a) => !a.voided && a.scope.level === "medicamento" ? a.scope.targetId === med.id : a.scope.level === "principio_activo" ? med.ingredients.some((i) => i.ingredientId === a.scope.targetId) : mine.some((p) => p.id === a.scope.targetId));
   const evs = useMemo(() => (access.view && ags.length ? evaluateAgreements(S, { items: spendItems(S, schemes, asOf), asOf, only: ags.map((a) => a.id) }) : []), [S, access.view]);
   return <Modal wide title={med.name} onClose={onClose}>
     <p className="sub">{med.ingredients.map((i) => ingredientName(S, i.ingredientId) + (i.amount ? ` ${i.amount} ${i.unit}` : "")).join(" + ")} · {SRC_CHIP(med.source)}</p>
@@ -245,13 +267,24 @@ export function AgreementSummary({ ev, ag }) {
   </div>;
 }
 function PresentationsTab() {
-  const { S, set, user } = useApp();
-  const ref = ensureRef(S.ref); const all = allPresentations(S); const [form, setForm] = useState(null); const [err, setErr] = useState(null); const [conv, setConv] = useState(null);
+  const { S, set, user, access } = useApp();
+  const [editP, setEditP] = useState(null); const [archP, setArchP] = useState(null); const [showArch, setShowArch] = useState(false);
+  const ref = ensureRef(S.ref); const all = allPresentations(S, { includeArchived: showArch }); const [form, setForm] = useState(null); const [err, setErr] = useState(null); const [conv, setConv] = useState(null);
   const save = () => { try { const r = addPresentation(S.ref, { medicineId: form.medicineId, label: form.label, cn: form.cn || null, content: form.contentCount ? { count: form.contentCount, unit: form.contentUnit || "vial" } : null, conversion: form.mg > 0 ? { mgPerUnit: form.mg, basis: "manual", verified: !!form.verified } : null, oral: form.oral }, { user }); set((x) => ({ ...x, ref: r.ref })); setForm(null); setErr(null); } catch (e) { setErr(catErr(e)); } };
+  const saveEditP = () => { try { const ref2 = editPresentation(S.ref, editP.id, { label: editP.label, cn: editP.cn, oral: editP.oral, content: editP.contentCount ? { ...(editP.content || {}), count: editP.contentCount, unit: editP.contentUnit || "vial" } : null }, { user }); set((x) => ({ ...x, ref: ref2 })); setEditP(null); setErr(null); } catch (e) { setErr(catErr(e)); } };
   const saveConv = () => { try { set((x) => ({ ...x, ref: setConversion(x.ref, conv.id, conv.mg > 0 ? { mgPerUnit: conv.mg, basis: "manual", verified: conv.verified } : null, { user }) })); setConv(null); } catch (e) { setErr(catErr(e)); } };
   return <Card title="Presentaciones comerciales" actions={<Btn variant="primary" disabled={!ref.medicines.length} onClick={() => setForm({ medicineId: ref.medicines.length ? ref.medicines[ref.medicines.length - 1].id : "", label: "", cn: "", contentCount: 1, contentUnit: "vial", mg: null, verified: false, oral: false })}>+ Alta manual</Btn>}>
     {!ref.medicines.length && <p className="sub">Para dar de alta una presentación crea antes el medicamento.</p>}
-    <div className="tbl-w"><table className="tbl"><thead><tr><th>Presentación</th><th>CN (texto)</th><th>Contenido</th><th className="r">mg por unidad</th><th>Origen</th><th /></tr></thead><tbody>{all.map((p) => <tr key={p.id}><td><b>{p.label}</b>{p.medicineName && <div className="sub">{p.medicineName}</div>}</td><td className="num-mono">{p.cn || "—"}</td><td>{p.content ? `${p.content.count || ""} ${p.content.unit || ""}${p.content.volume ? " de " + p.content.volume.amount + " " + p.content.volume.unit : ""}` : "—"}</td><td className="r">{p.conversion ? <>{fmtNum(p.conversion.mgPerUnit, 3)} {p.conversion.verified ? <Chip kind="verificado">Comprobada</Chip> : <Chip kind="pendiente">Sin comprobar</Chip>}</> : <Chip kind="warn">Sin equivalencia</Chip>}</td><td>{SRC_CHIP(p.source)}</td><td className="r">{!p.legacy && <Btn small onClick={() => setConv({ id: p.id, mg: p.conversion ? p.conversion.mgPerUnit : null, verified: !!(p.conversion && p.conversion.verified) })}>Equivalencia</Btn>}</td></tr>)}</tbody></table></div>
+    <div className="tbl-w"><table className="tbl"><thead><tr><th>Presentación</th><th>CN (texto)</th><th>Contenido</th><th className="r">mg por unidad</th><th>Origen</th><th /></tr></thead><tbody>{all.map((p) => <tr key={p.id} style={p.archived || p.medicineArchived ? { opacity: 0.6 } : undefined}><td><b>{p.label}</b>{(p.archived || p.medicineArchived) && <> <Chip kind="neutral">Archivada</Chip></>}{p.medicineName && <div className="sub">{p.medicineName}</div>}</td><td className="num-mono">{p.cn || "—"}</td><td>{p.content ? `${p.content.count || ""} ${p.content.unit || ""}${p.content.volume ? " de " + p.content.volume.amount + " " + p.content.volume.unit : ""}` : "—"}</td><td className="r">{p.conversion ? <>{fmtNum(p.conversion.mgPerUnit, 3)} {p.conversion.verified ? <Chip kind="verificado">Comprobada</Chip> : <Chip kind="pendiente">Sin comprobar</Chip>}</> : <Chip kind="warn">Sin equivalencia</Chip>}</td><td>{SRC_CHIP(p.source)}</td><td className="r">{!p.legacy && !p.archived && access.edit && <><Btn small onClick={() => setConv({ id: p.id, mg: p.conversion ? p.conversion.mgPerUnit : null, verified: !!(p.conversion && p.conversion.verified) })}>Equivalencia</Btn> <Btn small onClick={() => setEditP({ id: p.id, label: p.label, cn: p.cn || "", oral: !!p.oral, content: p.content || null, contentCount: p.content ? p.content.count || "" : "", contentUnit: p.content ? p.content.unit || "" : "" })}>Editar</Btn></>}{!p.legacy && !p.medicineArchived && access.void && <> <Btn small onClick={() => setArchP(p)}>{p.archived ? "Restaurar" : "Archivar"}</Btn></>}</td></tr>)}</tbody></table></div>
+    {ref.presentations.some((p) => p.archived) && <label className="small" style={{ display: "block", marginTop: 6 }}><input type="checkbox" checked={showArch} onChange={(e) => setShowArch(e.target.checked)} /> Mostrar presentaciones archivadas</label>}
+    {archP && <ArchiveModal kind="presentation" item={archP} label={archP.label} onClose={() => setArchP(null)} />}
+    {editP && <Modal title="Editar presentación" onClose={() => setEditP(null)} footer={<><Btn onClick={() => setEditP(null)}>Cancelar</Btn><Btn variant="primary" disabled={!editP.label.trim()} onClick={saveEditP}>Guardar</Btn></>}>
+      <Field label="Descripción"><input value={editP.label} onChange={(e) => setEditP({ ...editP, label: e.target.value })} aria-label="Descripción de la presentación" /></Field>
+      <Field label="Código nacional" hint="6 o 7 dígitos; se guarda como texto. Vacío si no consta."><input value={editP.cn} onChange={(e) => setEditP({ ...editP, cn: e.target.value })} aria-label="Código nacional" /></Field>
+      <Field label="Contenido (unidades por envase)"><NumInput value={editP.contentCount === "" ? null : editP.contentCount} onChange={(v) => setEditP({ ...editP, contentCount: v || "" })} min={0} /></Field>
+      <Check checked={editP.oral} onChange={(v) => setEditP({ ...editP, oral: v })}>Vía oral</Check>
+      <p className="small muted">La equivalencia mg/envase se cambia con «Equivalencia». Los precios y acuerdos ya registrados no se modifican.</p>
+    </Modal>}
     {err && <Banner kind="warn">{err}</Banner>}
     {form && <Modal title="Alta manual de presentación" onClose={() => setForm(null)} footer={<><Btn onClick={() => setForm(null)}>Cancelar</Btn><Btn variant="primary" disabled={!form.label.trim()} onClick={save}>Crear</Btn></>}>
       <Field label="Medicamento"><Select value={form.medicineId} onChange={(v) => setForm({ ...form, medicineId: v })} options={ref.medicines.map((m) => ({ value: m.id, label: m.name }))} /></Field>

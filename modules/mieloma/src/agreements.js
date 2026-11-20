@@ -42,11 +42,24 @@ export function validateAgreement(a) {
 
 // Alta o modificación con histórico: cada cambio conserva la versión anterior y quién/cuándo.
 export function saveAgreement(list, input, { user, now = new Date().toISOString() } = {}) {
-  const errs = validateAgreement(input); if (errs.length) throw new AgreementError(errs.join(" "));
   const prev = input.id && list.find((x) => x.id === input.id);
+  if (prev && prev.voided) throw new AgreementError("Un acuerdo anulado no se modifica: registra uno nuevo.");
+  const errs = validateAgreement(input); if (errs.length) throw new AgreementError(errs.join(" "));
   if (!prev) return [...list, { ...input, id: uid(), version: 1, createdAt: now, createdBy: user || null, history: [] }];
   const { history, ...snap } = prev;
   return list.map((x) => (x.id === prev.id ? { ...input, id: prev.id, version: prev.version + 1, createdAt: prev.createdAt, createdBy: prev.createdBy, modifiedAt: now, modifiedBy: user || null, history: [...history, { ...snap, replacedAt: now, replacedBy: user || null }] } : x));
+}
+
+// Anular (irreversible, con motivo): nueva versión con estado «anulado»; la anterior queda en el histórico. Solo revisor/admin (lo exige la interfaz y la base).
+export const isVoidedAgreement = (a) => !!a.voided;
+export const activeAgreements = (S) => (S.agreements || []).filter((a) => !a.voided);
+export function voidAgreement(list, id, reason, { user, now = new Date().toISOString() } = {}) {
+  const r = String(reason == null ? "" : reason).trim(); if (!r) throw new AgreementError("El motivo de la anulación es obligatorio.");
+  const prev = (list || []).find((x) => x.id === id);
+  if (!prev) throw new AgreementError("Acuerdo no encontrado.");
+  if (prev.voided) throw new AgreementError("Este acuerdo ya está anulado.");
+  const { history, ...snap } = prev;
+  return list.map((x) => (x.id === id ? { ...prev, version: prev.version + 1, status: "anulado", voided: { at: now, by: user || null, reason: r }, modifiedAt: now, modifiedBy: user || null, history: [...history, { ...snap, replacedAt: now, replacedBy: user || null }] } : x));
 }
 
 /* ---------- Alcance ---------- */
@@ -118,7 +131,7 @@ function rawAdjustment(ag, base, exceeded) {
 
 // ctx: { S, schemes?, items, asOf } → evaluación de todos los acuerdos vigentes (o de los pedidos).
 export function evaluateAgreements(S, { items, asOf, only } = {}) {
-  const ags = (S.agreements || []).filter((a) => (!only || only.includes(a.id)));
+  const ags = activeAgreements(S).filter((a) => (!only || only.includes(a.id)));   // los anulados no computan
   const entries = (S.spendEntries || []).filter((e) => !e.voided);   // el gasto anulado no computa
   const evals = ags.map((ag) => evalOne(S, ag, items || [], entries, asOf));
   // Interacción entre acuerdos coincidentes

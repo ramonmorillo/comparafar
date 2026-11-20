@@ -14,8 +14,8 @@ const voidOf = (r) => (r.voided_at ? { voided: { at: r.voided_at, by: null, reas
 export const ingredientToRow = (i) => ({ id: i.id, name: i.name, name_norm: i.nameNorm, source: i.source || {}, cima: i.cima || null });
 export const rowToIngredient = (r) => ({ id: r.id, name: r.name, nameNorm: r.name_norm, source: r.source || {}, ...(r.cima ? { cima: r.cima } : {}) });
 
-export const medicineToRow = (m) => ({ id: m.id, name: m.name, nregistro: nul(m.nregistro), labtitular: nul(m.labtitular), forma: nul(m.forma), atc: m.atc || null, ingredients: m.ingredients, source: m.source || {} });
-export const rowToMedicine = (r) => ({ id: r.id, name: r.name, nregistro: r.nregistro || null, labtitular: r.labtitular || "", forma: r.forma || "", atc: r.atc || null, ingredients: r.ingredients, source: r.source || {} });
+export const medicineToRow = (m) => ({ id: m.id, name: m.name, nregistro: nul(m.nregistro), labtitular: nul(m.labtitular), forma: nul(m.forma), atc: m.atc || null, ingredients: m.ingredients, source: m.source || {}, archived: !!m.archived });
+export const rowToMedicine = (r) => ({ id: r.id, name: r.name, nregistro: r.nregistro || null, labtitular: r.labtitular || "", forma: r.forma || "", atc: r.atc || null, ingredients: r.ingredients, source: r.source || {}, archived: !!r.archived });
 
 export const presentationToRow = (p) => ({ id: p.id, medicine_id: p.medicineId, cn: nul(p.cn), label: p.label, content: p.content || null, conversion: p.conversion || null, oral: !!p.oral, source: p.source || {}, archived: !!p.archived });
 export const rowToPresentation = (r) => ({ id: r.id, medicineId: r.medicine_id, cn: r.cn || null, label: r.label, content: r.content || null, conversion: r.conversion || null, oral: !!r.oral, source: r.source || {}, archived: !!r.archived });
