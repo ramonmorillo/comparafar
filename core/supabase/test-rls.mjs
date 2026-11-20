@@ -8,6 +8,8 @@ create function auth.uid() returns uuid language sql stable as $$ select nullif(
 create function auth.jwt() returns jsonb language sql stable as $$ select jsonb_build_object('email', current_setting('request.jwt.claim.email', true)) $$;
 create publication supabase_realtime;
 grant usage on schema auth to anon, authenticated; grant usage on schema public to anon;
+-- Supabase concede por defecto todos los privilegios sobre las tablas nuevas de public (incluido TRUNCATE): se reproduce para que la prueba sea realista
+alter default privileges in schema public grant all on tables to anon, authenticated;
 `;
 await db.exec(stub);
 await db.exec(fs.readFileSync("/home/claude/comparafar/core/supabase/001_schema.sql","utf8"));
@@ -35,6 +37,7 @@ t("editor inserta precio", (await as("editor","insert into price_history(item_id
 t("editor no inserta precio sin fuente", !(await as("editor","insert into price_history(item_id,price,source) values ('C03',21,'  ')")).ok);
 t("editor no puede modificar historial", !(await as("editor","update price_history set price=1")).ok);
 t("editor no puede borrar", !(await as("editor","delete from price_history")).ok);
+t("nadie de la app puede vaciar tablas (TRUNCATE)", !(await as("admin","truncate audit_log")).ok && !(await as("editor","truncate price_history")).ok);
 r = await as("admin","select user_email, action, entity from audit_log order by id desc limit 1"); t("auditoría registra al editor", r.rows[0]&&r.rows[0].user_email==="editor@x.es"&&r.rows[0].entity==="price_history");
 t("editor no lee auditoría", (await as("editor","select count(*)::int c from audit_log")).rows[0].c===0);
 t("editor crea esquema v1", (await as("editor","insert into schemes(id,name,line,version,status,data) values ('S1','Prueba','1N',1,'borrador','{\"a\":1,\"version\":1}')")).ok);

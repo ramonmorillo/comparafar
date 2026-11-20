@@ -217,6 +217,8 @@ grant select on public.profiles, public.catalog_items, public.price_history, pub
 grant insert, update on public.catalog_items, public.schemes to authenticated;
 grant insert on public.price_history to authenticated;
 revoke delete on all tables in schema public from authenticated;
+-- TRUNCATE no pasa por RLS (y REFERENCES/TRIGGER no hacen falta): se retiran para que ningún rol de la app pueda vaciar tablas ni la auditoría.
+revoke truncate, references, trigger on all tables in schema public from authenticated;
 revoke update on public.price_history, public.scheme_versions, public.audit_log from authenticated;
 revoke insert on public.scheme_versions, public.audit_log from authenticated;
 revoke insert, update on public.profiles from authenticated;
