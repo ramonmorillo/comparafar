@@ -38,9 +38,10 @@ export function resolvePatient(p) {
 
 /* ---------- Catálogo y presentaciones ---------- */
 export function currentPrice(entry, asOf) {
-  if (!entry.history || !entry.history.length) return null;
-  const list = entry.history.filter((h) => !asOf || !h.from || h.from <= asOf).sort((a, b) => (a.from || "").localeCompare(b.from || ""));
-  const last = list[list.length - 1] || entry.history[entry.history.length - 1];
+  const hist = (entry.history || []).filter((h) => !h.voided);   // un precio anulado no cuenta
+  if (!hist.length) return null;
+  const list = hist.filter((h) => !asOf || !h.from || h.from <= asOf).sort((a, b) => (a.from || "").localeCompare(b.from || ""));
+  const last = list[list.length - 1] || hist[hist.length - 1];
   return last && last.price > 0 ? last.price : null;
 }
 

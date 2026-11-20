@@ -39,6 +39,14 @@ El PDF se procesa en el navegador. No se guarda el fichero ni su nombre; solo su
 Reglas de sincronización: ref_*, alias y gasto registrado solo se añaden (medicamentos y presentaciones también se actualizan); las versiones de precio solo se añaden y se cierra la vigencia abierta; los acuerdos usan control de versión (conflicto 40001) y el histórico lo genera la base. **No se sincronizan** planes importados, borradores ni estimaciones. Al bajar de la nube nunca se pierde lo pendiente de subir (`mergeEco`). Un lector no pide ni recibe condiciones comerciales. La nube guarda el uuid del autor, no el correo: «Registrado por» conserva el valor local del propio navegador y queda vacío para registros de otras personas (el correo está en `audit_log`, solo revisor/admin).
 Si 003 no está aplicada y `eco` está en true, la sincronización económica se desactiva sola al detectar «tabla inexistente» sin afectar a catálogo ni esquemas.
 
+## Anulaciones (precios y gasto registrado) · migración 004
+Los registros económicos **no se borran: se anulan**. Una anulación exige **motivo**, queda con autor y fecha en el histórico, es irreversible y el registro deja de computar (Costes, estimaciones, evaluación de acuerdos y exportaciones). Se corrige registrando uno nuevo.
+- **Quién:** solo revisor y admin (sin conexión no hay roles: se permite). El editor no ve el botón. Un lector no ve los anulados.
+- **Dónde:** versiones de precio (historial de cada presentación) y gasto registrado, con «Mostrar anulados». Anular una versión de precio **general** anula también su entrada en `price_history`, para que la Calculadora y el motor heredado dejen de usar ese precio (por eso 004 toca una tabla de 001).
+- **Base de datos:** `004_anulaciones.sql` (aditiva, idempotente; requiere 001 y 003): columnas `voided_at/voided_by/void_reason`, guarda que solo admite anular (una vez, con motivo, sin cambiar otro campo) y solo a revisor/admin, auditoría «anular», y `UPDATE` limitado a esas tres columnas. Un precio anulado no cuenta como solape. Probada en `test-rls-eco.mjs`.
+- **Límites conocidos:** (1) Si la versión anulada había cerrado la vigencia de la anterior, esa seguirá cerrada (la base no permite reabrir vigencias): tras anular hay que registrar la versión correcta; el cuadro de anulación lo avisa. Entretanto Costes puede no tener precio vigente mientras la Calculadora usa el último precio no anulado de su historial. (2) Las versiones derivadas del historial heredado que aún no tienen versión propia no se pueden anular desde Costes: se corrigen registrando una versión nueva. (3) La nube guarda el uuid de quien anula, no su correo: el nombre solo se ve en el navegador de quien anuló (el correo está en `audit_log`). (4) Sin 004 aplicada, anular en modo compartido fallará al sincronizar (se avisa y se recarga la nube).
+- **Pendiente (siguiente fase):** editar/archivar presentaciones del catálogo y anular acuerdos.
+
 ## Pruebas
 ```
 cd modules/mieloma

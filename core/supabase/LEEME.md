@@ -15,3 +15,6 @@ Los datos de pacientes NO se envían a Supabase.
 
 ## Módulos económicos (003) — NO aplicado
 `003_modulos_economicos.sql` es aditiva e idempotente (catálogo de referencia, versiones de precio, acuerdos de gasto, gasto registrado, auditoría y RLS). No la ejecutes en el proyecto en producción: pruébala primero en una rama o proyecto de pruebas y ejecuta antes `node core/supabase/test-rls-eco.mjs` (requiere `npm i --no-save @electric-sql/pglite` en `modules/mieloma`). Las condiciones comerciales solo las ven editor, revisor y admin. El cliente existe pero está apagado (`eco: false` en `modules/mieloma/src/cloudConfig.js`); actívalo solo después de aplicar 003.
+
+## Anulaciones (004) — NO aplicado
+`004_anulaciones.sql` (requiere 001 y 003): permite anular (no borrar) versiones de precio, gasto registrado y su reflejo en `price_history`, solo por revisor/admin y con motivo obligatorio. Aditiva e idempotente. Ejecútala después de 003 y antes de usar «Anular» con la base compartida. Verifica con `node core/supabase/test-rls-eco.mjs` (pglite).

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { fmtDate, fmtNum, toCSV, addDays } from "./engine.js";
 import { useApp, Btn, Field, NumInput, Select, Check, Card, Banner, Tabs, Chip, Empty, Modal, Kpi, CopyBtn, cx } from "./kit.jsx";
 import { allPresentations, allIngredients, ingredientName, ensureRef } from "./refcatalog.js";
-import { versionsFor, resolvePrice, unitPrice, costPerMg, addPriceVersion, PriceError, PURCHASE_UNITS, VAT_MODES, DEFAULT_CONDITION, isCommercialVersion } from "./pricing.js";
+import { versionsFor, resolvePrice, unitPrice, costPerMg, addPriceVersion, voidPriceVersion, voidSpendEntry, VoidError, PriceError, PURCHASE_UNITS, VAT_MODES, DEFAULT_CONDITION, isCommercialVersion } from "./pricing.js";
 import { estimatePlan, costInPeriod, REASONS, policyText } from "./estimate.js";
 import { reestimate, currentPlans, chainOf } from "./importflow.js";
 import { AGREEMENT_TYPES, SCOPE_LEVELS, FORMULA_KINDS, saveAgreement, validateAgreement, evaluateAgreements, spendItems, periodOf, AgreementError } from "./agreements.js";
@@ -27,16 +27,32 @@ export function CostesPage() {
   );
 }
 
+/* Anulación: nunca se borra. Motivo obligatorio; queda en el histórico con autor y fecha y deja de computar. */
+function VoidModal({ title, intro, onConfirm, onClose }) {
+  const [reason, setReason] = useState(""); const [err, setErr] = useState(null);
+  const go = () => { try { onConfirm(reason.trim()); onClose(); } catch (e) { setErr(e instanceof VoidError ? e.message : "No se pudo anular: " + e.message); } };
+  return <Modal title={title} onClose={onClose} footer={<><Btn onClick={onClose}>Cancelar</Btn><Btn kind="primary" onClick={go} disabled={!reason.trim()}>Anular</Btn></>}>
+    <p>{intro}</p>
+    <p className="small muted">No se borra: queda en el histórico con tu nombre, la fecha y este motivo, y deja de usarse en cálculos y exportaciones. No se puede deshacer; para corregir, registra uno nuevo.</p>
+    <Field label="Motivo de la anulación (obligatorio)"><textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: "100%" }} aria-label="Motivo de la anulación" /></Field>
+    {err && <div role="alert" style={{ color: "var(--bad, #b3261e)" }}>{err}</div>}
+  </Modal>;
+}
+const VoidedNote = ({ v }) => <div className="sub">Anulado {v.at ? String(v.at).slice(0, 10) : ""}{v.by ? " por " + v.by : ""}: {v.reason}</div>;
+
 function PricesTab() {
   const { S, set, user, access } = useApp();
   const [q, setQ] = useState(""); const [open, setOpen] = useState(null); const [form, setForm] = useState(null);
+  const [showVoided, setShowVoided] = useState(false); const [voiding, setVoiding] = useState(null);
   const td = today();
   const rows = allPresentations(S).filter((p) => !q || (p.label + " " + (p.cn || "")).toLowerCase().includes(q.toLowerCase()));
   return <>
     <input aria-label="Buscar presentación" placeholder="Buscar presentación o código nacional…" value={q} onChange={(e) => setQ(e.target.value)} />
+    {access.view && <label className="small" style={{ display: "block", margin: "6px 0" }}><input type="checkbox" checked={showVoided} onChange={(e) => setShowVoided(e.target.checked)} /> Mostrar versiones anuladas en el historial</label>}
     <Card flush><div className="tbl-w"><table className="tbl"><thead><tr><th>Presentación</th><th className="r">Precio vigente hoy</th><th>Unidad de compra</th><th>IVA</th><th className="r">€/mg</th><th>Fuente y vigencia</th><th /></tr></thead><tbody>
       {rows.map((p) => {
         const vs = versionsFor(S, p.id).filter((v) => access.view || !isCommercialVersion(v));
+        const vsAll = versionsFor(S, p.id, { includeVoided: true }).filter((v) => access.view || !isCommercialVersion(v)); const shown = showVoided ? vsAll : vs; const nVoided = vsAll.length - vs.length;
         const v = resolvePrice(vs, td); const up = v ? unitPrice(v) : null; const permg = v && up && up.units ? costPerMg(p, up.units) : null;
         return <React.Fragment key={p.id}>
           <tr className={cx(!v && "row-warn")}><td><b>{p.label}</b><div className="sub">{p.cn ? "CN " + p.cn : p.legacy ? "catálogo del Excel" : "sin CN"}</div></td>
@@ -45,12 +61,15 @@ function PricesTab() {
             <td className="small">{v ? VAT_MODES[v.vat.mode] + (v.vat.rate ? ` (${v.vat.rate * 100} %)` : "") : "—"}</td>
             <td className="r num-mono">{permg != null ? fmtNum(permg, 4) : <span className="muted" title={p.conversion ? "Equivalencia sin comprobar" : "Sin equivalencia"}>—</span>}</td>
             <td className="small">{v ? <>{v.source || "sin fuente"}<div className="sub">desde {v.from ? fmtDate(v.from) : "origen"}{v.to ? " hasta " + fmtDate(v.to) : ""}</div></> : "—"}</td>
-            <td className="r"><Btn small onClick={() => setOpen(open === p.id ? null : p.id)}>Historial ({vs.length})</Btn>{access.edit && <> <Btn small onClick={() => setForm({ presId: p.id, label: p.label, price: null, purchaseUnit: "vial", contentPerUnit: 1, vatMode: "sin_iva", vatRate: null, source: "", from: td, to: "", center: "", condition: DEFAULT_CONDITION, priceType: "", note: "", closePrevious: false })}>Nueva versión</Btn></>}</td></tr>
-          {open === p.id && <tr><td colSpan={7}><div className="tbl-w"><table className="tbl inner"><thead><tr><th>Desde</th><th>Hasta</th><th className="r">Precio</th><th>Unidad / contenido</th><th>IVA</th><th>Centro</th><th>Condición</th><th>Fuente</th><th>Registrado</th></tr></thead><tbody>{vs.length === 0 ? <tr><td colSpan={9} className="muted">Sin versiones.</td></tr> : vs.slice().sort((a, b) => (a.from || "").localeCompare(b.from || "")).map((x) => <tr key={x.id}><td>{x.from ? fmtDate(x.from) : "origen"}</td><td>{x.to ? fmtDate(x.to) : "abierta"}</td><td className="r">{fmtUnits(x.priceUnits)}</td><td>{x.purchaseUnit} / {x.contentPerUnit}</td><td>{VAT_MODES[x.vat.mode]}</td><td>{x.center || "—"}</td><td>{x.condition}</td><td>{x.source}</td><td className="small">{x.origin === "legacy" ? "Excel / histórico" : (x.by || "—") + " · " + (x.at || "").slice(0, 10)}</td></tr>)}</tbody></table></div></td></tr>}
+            <td className="r"><Btn small onClick={() => setOpen(open === p.id ? null : p.id)}>Historial ({vs.length}{nVoided ? ` +${nVoided} anul.` : ""})</Btn>{access.edit && <> <Btn small onClick={() => setForm({ presId: p.id, label: p.label, price: null, purchaseUnit: "vial", contentPerUnit: 1, vatMode: "sin_iva", vatRate: null, source: "", from: td, to: "", center: "", condition: DEFAULT_CONDITION, priceType: "", note: "", closePrevious: false })}>Nueva versión</Btn></>}</td></tr>
+          {open === p.id && <tr><td colSpan={7}><div className="tbl-w"><table className="tbl inner"><thead><tr><th>Desde</th><th>Hasta</th><th className="r">Precio</th><th>Unidad / contenido</th><th>IVA</th><th>Centro</th><th>Condición</th><th>Fuente</th><th>Registrado</th><th></th></tr></thead><tbody>{shown.length === 0 ? <tr><td colSpan={10} className="muted">Sin versiones.</td></tr> : shown.slice().sort((a, b) => (a.from || "").localeCompare(b.from || "")).map((x) => <tr key={x.id} style={x.voided ? { opacity: 0.6, textDecoration: "line-through" } : undefined}><td>{x.from ? fmtDate(x.from) : "origen"}</td><td>{x.to ? fmtDate(x.to) : "abierta"}</td><td className="r">{fmtUnits(x.priceUnits)}</td><td>{x.purchaseUnit} / {x.contentPerUnit}</td><td>{VAT_MODES[x.vat.mode]}</td><td>{x.center || "—"}</td><td>{x.condition}</td><td>{x.source}</td><td className="small">{x.origin === "legacy" ? "Excel / histórico" : (x.by || "—") + " · " + (x.at || "").slice(0, 10)}</td><td className="r" style={{ textDecoration: "none" }}>{x.voided ? <><Chip kind="neutral">Anulada</Chip><VoidedNote v={x.voided} /></> : access.void && (S.priceVersions || []).some((pv) => pv.id === x.id) ? <Btn small onClick={() => setVoiding({ kind: "version", id: x.id, label: `${p.label} · ${fmtUnits(x.priceUnits)} desde ${x.from ? fmtDate(x.from) : "origen"}` })}>Anular</Btn> : null}</td></tr>)}</tbody></table></div></td></tr>}
         </React.Fragment>;
       })}
     </tbody></table></div></Card>
     {form && <PriceVersionForm form={form} onClose={() => setForm(null)} />}
+    {voiding && <VoidModal title="Anular versión de precio" onClose={() => setVoiding(null)}
+      intro={<>Vas a anular la versión de precio <b>{voiding.label}</b>.{(S.priceVersions || []).some((x) => !x.voided && x.closedBy === voiding.id) && <> <b>Ojo:</b> esta versión cerró la vigencia de la anterior, que seguirá cerrada: tras anular, registra la versión correcta para que haya precio vigente en ese periodo.</>}</>}
+      onConfirm={(reason) => { const r = voidPriceVersion(S, voiding.id, reason, { user }); set((x) => ({ ...x, priceVersions: r.priceVersions, catalog: r.catalog, log: [{ ts: Date.now(), what: `Anulada versión de precio ${voiding.label}: ${reason}`, by: user || null }, ...(x.log || [])].slice(0, 100) })); }} />}
   </>;
 }
 
@@ -144,6 +163,7 @@ const fromAgreement = (a) => ({ type: a.type, title: a.title, level: a.scope.lev
 export function AcuerdosPage() {
   const { S, set, user, access, schemes } = useApp();
   const [asOf, setAsOf] = useState(today()); const [form, setForm] = useState(null); const [edit, setEdit] = useState(null); const [err, setErr] = useState(null); const [hist, setHist] = useState(null); const [entry, setEntry] = useState(null);
+  const [showVoidedSpend, setShowVoidedSpend] = useState(false); const [voidingSpend, setVoidingSpend] = useState(null);
   const ags = S.agreements || [];
   const { evs, items } = useMemo(() => { if (!access.view) return { evs: [], items: [] }; const it = spendItems(S, schemes, asOf); return { items: it, evs: evaluateAgreements(S, { items: it, asOf }) }; }, [S.agreements, S.spendEntries, S.plans, S.estimates, S.importedPlans, S.ref, S.catalog, S.patients, asOf, access.view]);
   const eco = useMemo(() => ecoSection(S, schemes, { access, asOf }), [S.agreements, S.spendEntries, S.plans, S.estimates, access, asOf]);
@@ -168,7 +188,10 @@ export function AcuerdosPage() {
           {ev.incidents.map((i, k) => <Banner key={k} kind="warn" title={i.code === "ACUERDOS_COINCIDENTES" ? "Acuerdos coincidentes." : i.code === "SIN_REGISTRO" ? "Ejecución sin registrar." : "Incidencia."}>{i.text}</Banner>)}
         </Card>); })}
       <Card title="Gasto realizado y ajustes registrados" sub="Acumulados contables fechados con su procedencia. El gasto realizado de la agenda se usa si no hay acumulado." actions={access.edit && <Btn small onClick={() => setEntry({ kind: "realizado", scope: { level: "principio_activo", targetId: "" }, from: `${new Date().getFullYear()}-01-01`, to: `${new Date().getFullYear()}-12-31`, asOf: today(), amountEur: null, source: "" })}>+ Acumulado</Btn>}>
-        {(S.spendEntries || []).length === 0 ? <Empty title="Sin registros" /> : <div className="tbl-w"><table className="tbl"><thead><tr><th>Tipo</th><th>Ámbito</th><th>Periodo</th><th>A fecha</th><th className="r">Importe</th><th>Procedencia</th><th>Registrado por</th></tr></thead><tbody>{S.spendEntries.map((e) => <tr key={e.id}><td>{e.kind === "realizado" ? "Gasto realizado (acumulado)" : e.kind === "devolucion" ? "Devolución registrada" : "Ajuste registrado"}</td><td>{e.scope && e.scope.targetId ? scopeLabel(S, { scope: e.scope }) : "—"}</td><td>{e.from ? `${fmtDate(e.from)} – ${fmtDate(e.to)}` : "—"}</td><td>{fmtDate(e.asOf)}</td><td className="r">{fmtCents(e.amountCents)}</td><td>{e.source}</td><td className="small">{e.by || "—"} {e.at ? "· " + e.at.slice(0, 10) : ""}</td></tr>)}</tbody></table></div>}
+        <label className="small" style={{ display: "block", marginBottom: 6 }}><input type="checkbox" checked={showVoidedSpend} onChange={(e) => setShowVoidedSpend(e.target.checked)} /> Mostrar registros anulados</label>
+        {(S.spendEntries || []).filter((e) => showVoidedSpend || !e.voided).length === 0 ? <Empty title="Sin registros" /> : <div className="tbl-w"><table className="tbl"><thead><tr><th>Tipo</th><th>Ámbito</th><th>Periodo</th><th>A fecha</th><th className="r">Importe</th><th>Procedencia</th><th>Registrado por</th><th></th></tr></thead><tbody>{S.spendEntries.filter((e) => showVoidedSpend || !e.voided).map((e) => <tr key={e.id} style={e.voided ? { opacity: 0.6 } : undefined}><td>{e.kind === "realizado" ? "Gasto realizado (acumulado)" : e.kind === "devolucion" ? "Devolución registrada" : "Ajuste registrado"}</td><td>{e.scope && e.scope.targetId ? scopeLabel(S, { scope: e.scope }) : "—"}</td><td>{e.from ? `${fmtDate(e.from)} – ${fmtDate(e.to)}` : "—"}</td><td>{fmtDate(e.asOf)}</td><td className="r">{fmtCents(e.amountCents)}</td><td>{e.source}</td><td className="small">{e.by || "—"} {e.at ? "· " + e.at.slice(0, 10) : ""}</td><td className="r">{e.voided ? <><Chip kind="neutral">Anulado</Chip><VoidedNote v={e.voided} /></> : access.void ? <Btn small onClick={() => setVoidingSpend(e)}>Anular</Btn> : null}</td></tr>)}</tbody></table></div>}
+        {voidingSpend && <VoidModal title="Anular gasto registrado" onClose={() => setVoidingSpend(null)} intro={<>Vas a anular el registro de <b>{fmtCents(voidingSpend.amountCents)}</b> a fecha {fmtDate(voidingSpend.asOf)} ({voidingSpend.source}).</>}
+          onConfirm={(reason) => { const list = voidSpendEntry(S.spendEntries || [], voidingSpend.id, reason, { user }); set((x) => ({ ...x, spendEntries: list, log: [{ ts: Date.now(), what: `Anulado registro de gasto (${fmtCents(voidingSpend.amountCents)}): ${reason}`, by: user || null }, ...(x.log || [])].slice(0, 100) })); }} />}
       </Card>
       {form && <Modal wide title={edit ? "Editar acuerdo" : "Nuevo acuerdo"} onClose={() => { setForm(null); setErr(null); }} footer={<><Btn onClick={() => { setForm(null); setErr(null); }}>Cancelar</Btn><Btn variant="primary" onClick={save}>Guardar</Btn></>}>
         <div className="form-grid">
