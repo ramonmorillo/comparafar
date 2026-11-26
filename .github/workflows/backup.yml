@@ -1,0 +1,36 @@
+name: Copia de seguridad de la base compartida
+# Semanal (domingo) y a demanda. Vuelca las tablas de Supabase, las CIFRA y las guarda como artefacto 90 días.
+# Si falla, GitHub avisa por correo al propietario del repositorio. Ver core/backup/BACKUP.md (secretos y restauración).
+on:
+  schedule:
+    - cron: "43 4 * * 0"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Volcar tablas (solo se imprimen recuentos)
+        env:
+          SUPABASE_URL: https://qmwysaducxbkbximwzxn.supabase.co
+          SUPABASE_KEY: sb_publishable_l1O-QzlS6NleGh5rlgYTow_WgCUt70q
+          BACKUP_EMAIL: ${{ secrets.BACKUP_EMAIL }}
+          BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
+        shell: bash   # con pipefail: si el volcado falla, el paso falla aunque tee termine bien
+        run: node core/backup/backup.mjs backup | tee "$GITHUB_STEP_SUMMARY"
+      - name: "Cifrar (si el repositorio es público, los datos comerciales no deben salir en claro)"
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          test -n "$BACKUP_PASSPHRASE" || { echo "Falta el secreto BACKUP_PASSPHRASE"; exit 1; }
+          tar czf - backup | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE -out "comparafar-backup-$(date -u +%Y%m%d).tar.gz.enc"
+          rm -rf backup
+          ls -l comparafar-backup-*.enc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: comparafar-backup-cifrado
+          path: comparafar-backup-*.tar.gz.enc
+          retention-days: 90
+          if-no-files-found: error
