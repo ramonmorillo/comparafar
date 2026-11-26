@@ -7,6 +7,9 @@ Plataforma de apoyo para Farmacia Hospitalaria, organizada en módulos. Primer m
 ## Módulos económicos
 Importar desde Oncofar, catálogo de medicamentos (con CIMA), costes y acuerdos de gasto: ver `docs/MODULOS-ECONOMICOS.md`.
 
+## Estado de la base compartida (Supabase)
+Catálogo de costes y esquemas se comparten entre usuarios y equipos. Los módulos económicos (versiones de precio, acuerdos, gasto, catálogo de medicamentos) **aún se guardan solo en cada navegador**: la migración 003 está aplicada, pero faltan 004, 005 y 006 y activar `eco`. Detalle y comprobaciones en `core/supabase/LEEME.md`.
+
 ## Estructura
 - `modules/mieloma/`: motor de cálculo, datos importados del Excel, auditoría e interfaz (React). Ver su `LEEME.txt`.
 - `core/`: (pendiente) autenticación, roles, auditoría de cambios y catálogo común.
