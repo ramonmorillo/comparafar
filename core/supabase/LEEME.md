@@ -33,22 +33,24 @@ Comprueba que afecta a una sola fila y comunica la contraseña temporal por un c
 **(c) Aviso sobre el SMTP por defecto**: el servicio de correo integrado de Supabase solo envía a direcciones de miembros del equipo de la organización (y con límite de envíos por hora). Para que la recuperación funcione con el resto de usuarios hay que configurar un SMTP propio (Authentication → SMTP Settings). Mientras tanto, usa el restablecimiento por SQL de (a).
 
 ## Estado de las migraciones en producción (comprobado el 26/11/2026 desde el SQL Editor)
-- **001 y 002:** aplicadas. Realtime activo solo en `catalog_items`, `price_history` y `schemes`.
-- **003:** aplicada (existen `ref_*`, `price_versions`, `agreements`, `agreement_versions`, `spend_entries`). El cliente sigue apagado (`eco: false`).
-- **004:** NO aplicada (`price_history.voided_at` no existe). Por tanto **005** tampoco se puede haber aplicado (la requiere).
-- **006:** NO aplicada (añade las tablas económicas a Realtime).
-Comprobación rápida de cada una: `select column_name from information_schema.columns where table_schema='public' and table_name='price_history' and column_name='voided_at';` (004 → una fila) y `select column_name from information_schema.columns where table_schema='public' and table_name='ref_medicines' and column_name='archived';` (005 → una fila). Las migraciones se pegan a mano en el SQL Editor, por lo que `supabase_migrations.schema_migrations` no existe.
+- **001 y 002:** aplicadas.
+- **003:** aplicada (tablas `ref_*`, `price_versions`, `agreements`, `agreement_versions`, `spend_entries`; vacías hasta activar `eco`).
+- **004:** aplicada y verificada (`voided_at` en `price_history`, `price_versions`, `spend_entries`).
+- **005:** aplicada y verificada (`ref_medicines.archived`).
+- **006:** aplicada y verificada (Realtime en 8 tablas: las 3 de 001 y las 5 económicas).
+- **Cliente:** `eco: true` (sincronización económica activa).
+Comprobaciones: 004 → `select table_name from information_schema.columns where table_schema='public' and column_name='voided_at';` (3 filas); 005 → `select column_name from information_schema.columns where table_schema='public' and table_name='ref_medicines' and column_name='archived';` (1 fila); 006 → `select tablename from pg_publication_tables where pubname='supabase_realtime' and schemaname='public';` (8 filas). Las migraciones se pegan a mano en el SQL Editor, por lo que `supabase_migrations.schema_migrations` no existe.
 
 ## Módulos económicos (003) — aplicada
-`003_modulos_economicos.sql` es aditiva e idempotente (catálogo de referencia, versiones de precio, acuerdos de gasto, gasto registrado, auditoría y RLS). Las condiciones comerciales solo las ven editor, revisor y admin. El cliente existe pero está apagado (`eco: false` en `modules/mieloma/src/cloudConfig.js`); actívalo solo después de aplicar 004, 005 y 006 y de probar con dos sesiones.
+`003_modulos_economicos.sql` es aditiva e idempotente (catálogo de referencia, versiones de precio, acuerdos de gasto, gasto registrado, auditoría y RLS). Las condiciones comerciales solo las ven editor, revisor y admin. El cliente está activo desde el 26/11/2026 (`eco: true` en `modules/mieloma/src/cloudConfig.js`), tras aplicar 004–006.
 
-## Anulaciones (004) — NO aplicado
-`004_anulaciones.sql` (requiere 001 y 003): permite anular (no borrar) versiones de precio, gasto registrado y su reflejo en `price_history`, solo por revisor/admin y con motivo obligatorio. Aditiva e idempotente. Mientras no esté aplicada, «Anular» está bloqueado en modo compartido. Verifica con `node core/supabase/test-rls-eco.mjs` (pglite).
+## Anulaciones (004) — aplicada
+`004_anulaciones.sql` (requiere 001 y 003): permite anular (no borrar) versiones de precio, gasto registrado y su reflejo en `price_history`, solo por revisor/admin y con motivo obligatorio. Aditiva e idempotente. Verifica con `node core/supabase/test-rls-eco.mjs` (pglite).
 
-## Archivar y anular acuerdos (005) — NO aplicado
+## Archivar y anular acuerdos (005) — aplicada
 `005_catalogo_acuerdos.sql` (requiere 001, 003 y 004): columna `ref_medicines.archived`, archivar/restaurar solo revisor/admin, y anulación de acuerdos irreversible, con motivo y solo revisor/admin. Aditiva e idempotente. Orden: 004 → 005 → 006.
 
-## Tiempo real de los módulos económicos (006) — NO aplicado
+## Tiempo real de los módulos económicos (006) — aplicada
 `006_realtime_economicos.sql` (requiere 003): añade `ref_medicines`, `ref_presentations`, `price_versions`, `agreements` y `spend_entries` a la publicación `supabase_realtime`. Sin ella, con `eco: true` los cambios de otras personas llegan solo por el sondeo (90 s), al volver a la pestaña o al reconectar. Idempotente; no cambia datos ni permisos.
 
 ## Antes de aplicar en producción (plan gratuito: sin copias de seguridad ni proyecto de pruebas)
