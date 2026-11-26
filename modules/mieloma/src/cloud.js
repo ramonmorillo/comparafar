@@ -2,13 +2,27 @@ import { createClient } from "@supabase/supabase-js";
 import { CLOUD } from "./cloudConfig.js";
 import { rowsToCatalog, itemToRow, priceToRow, schemeToRow, rowToScheme, isConflict } from "./cloudMap.js";
 import { ecoFromRows } from "./cloudEco.js";
+import { checkEmail } from "./cloudAuth.js";
 
 let sb = null;
 export const client = () => sb || (sb = createClient(CLOUD.url, CLOUD.key, { auth: { persistSession: true, autoRefreshToken: true } }));
 const must = (r) => { if (r.error) throw r.error; return r.data; };
 
 export const getSession = async () => must(await client().auth.getSession()).session;
-export const signIn = async (email, password) => must(await client().auth.signInWithPassword({ email, password })).session;
+// El correo se normaliza y valida ANTES de llamar a Supabase; si es incompleto no se hace ninguna petición.
+export const signIn = async (email, password) => {
+  const v = checkEmail(email);
+  if (!v.ok) throw new Error(v.msg);
+  return must(await client().auth.signInWithPassword({ email: v.email, password })).session;
+};
+export const RESET_REDIRECT = "https://ramonmorillo.es/comparafar/";
+export const requestPasswordReset = async (email) => {
+  const v = checkEmail(email);
+  if (!v.ok) throw new Error(v.msg);
+  must(await client().auth.resetPasswordForEmail(v.email, { redirectTo: RESET_REDIRECT }));
+};
+export const updatePassword = async (password) => must(await client().auth.updateUser({ password }));
+export const onRecovery = (cb) => client().auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") cb(); }).data.subscription;
 export const signOut = async () => { await client().auth.signOut(); };
 export const getProfile = async (uid) => must(await client().from("profiles").select("email,full_name,role,active").eq("id", uid).maybeSingle());
 
