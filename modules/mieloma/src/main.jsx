@@ -115,7 +115,7 @@ function App() {
         <div className="main-w">
           {pendingValidation && <div className="demo-bar no-print" role="status">Precios y pautas importados del Excel <b>pendientes de validación</b>. No usar como información clínica verificada.{!persist && " · Este entorno no permite guardar entre sesiones."}</div>}
           <CloudBar cs={cs} />
-          <main id="main" tabIndex={-1}>{cs.status === "login" ? <LoginGate cs={cs} /> : cs.status === "boot" ? null : <Page />}</main>
+          <main id="main" tabIndex={-1}>{cs.status === "login" || cs.status === "recovery" ? <LoginGate cs={cs} /> : cs.status === "boot" ? null : <Page />}</main>
         </div>
       </div>
     </AppCtx.Provider>
