@@ -91,11 +91,11 @@ export async function pushVoids({ versions = [], spend = [], history = [] }) {
   for (const x of history) await run("price_history", x.id, x.reason);
   for (const x of spend) await run("spend_entries", x.id, x.reason);
 }
-export function subscribe(onChange) {
+export function subscribe(onChange, onStatus) {
   const c = client();
   const ch = c.channel("comparafar-sync");
   for (const t of ["catalog_items", "price_history", "schemes", ...(CLOUD.eco ? ["ref_medicines", "ref_presentations", "price_versions", "agreements", "spend_entries"] : [])]) ch.on("postgres_changes", { event: "*", schema: "public", table: t }, onChange);
-  ch.subscribe();
+  ch.subscribe((status) => { if (onStatus) onStatus(status); });
   return () => { c.removeChannel(ch); };
 }
 export async function pullAudit(limit = 200) {

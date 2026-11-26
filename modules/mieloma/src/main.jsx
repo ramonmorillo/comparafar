@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useCloudSync, LoginGate, CloudBar } from "./CloudSync.jsx";
+import { KEY, makeStore } from "./localStore.js";
 import { createRoot } from "react-dom/client";
 import { CATALOG_INITIAL, SCHEMES_ALL, PATIENTS_DEMO, CONFIG_DEFAULT, BSAB_PRESETS } from "./data.js";
 import { addDays } from "./engine.js";
@@ -13,7 +14,6 @@ import { emptyRef } from "./refcatalog.js";
 import { AgendaPage, PanelPage, InformesPage, AuditoriaPage, AdminPage } from "./pages_c.jsx";
 import { ENGINE_VERSION } from "./engine.js";
 
-const KEY = "mielofarma:v1";
 const ROUTES = [
   ["plataforma", "Comparafar", null], ["inicio", "Inicio", Inicio], ["paciente", "Paciente", PacientePage], ["calculadora", "Calculadora", CalculadoraPage], ["comparador", "Comparador", ComparadorPage],
   ["esquemas", "Esquemas", EsquemasPage], ["precios", "Precios", PreciosPage], ["importar", "Importar desde Oncofar", ImportarPage], ["catalogo", "Catálogo de medicamentos", CatalogoPage], ["costes", "Costes", CostesPage], ["acuerdos", "Acuerdos de gasto", AcuerdosPage], ["avanzadas", "Terapias avanzadas", AvanzadasPage], ["agenda", "Agenda", AgendaPage],
@@ -45,15 +45,16 @@ export function initialState() {
     ref: emptyRef(), priceVersions: [], agreements: [], spendEntries: [], importDrafts: [], importedPlans: [], estimates: [],
   };
 }
-const load = () => {
+// Completa un estado guardado con los valores por defecto (compatibilidad con copias anteriores).
+const normalize = (s) => {
   const base = initialState();
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return base;
-    const s = JSON.parse(raw);
-    if (!s || s.v !== 1) return base;
-    return { ...base, ...s, config: { ...base.config, ...s.config }, calc: { ...base.calc, ...s.calc }, cmp: { ...base.cmp, ...s.cmp }, adv: { ...base.adv, ...s.adv } };
-  } catch (e) { return base; }
+  if (!s || s.v !== 1) return base;
+  return { ...base, ...s, config: { ...base.config, ...s.config }, calc: { ...base.calc, ...s.calc }, cmp: { ...base.cmp, ...s.cmp }, adv: { ...base.adv, ...s.adv } };
+};
+const getLS = () => window.localStorage;
+const store = makeStore(getLS, { normalize, fresh: initialState });
+const load = () => {
+  try { const raw = window.localStorage.getItem(KEY); return raw ? normalize(JSON.parse(raw)) : initialState(); } catch (e) { return initialState(); }
 };
 const routeFromHash = () => { const h = (window.location.hash || "").replace("#", ""); return ROUTES.some((r) => r[0] === h) ? h : "plataforma"; };
 
@@ -73,14 +74,15 @@ function App() {
   const [S, setS] = useState(load);
   const [route, setRoute] = useState(routeFromHash);
   const [persist, setPersist] = useState(true);
-  const cs = useCloudSync(S, setS);
-  const first = useRef(true);
+  const cs = useCloudSync(S, setS, store);
+  // Dónde se guarda el estado: por usuario con sesión, KEY en modo sin conexión, y en ningún sitio mientras se espera el login.
+  const persistKey = cs.status === "ready" && cs.uid ? store.keyFor(cs.uid) : cs.status === "local" ? KEY : null;
   useEffect(() => { const h = () => setRoute(routeFromHash()); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    const id = setTimeout(() => { try { window.localStorage.setItem(KEY, JSON.stringify(S)); setPersist(true); } catch (e) { setPersist(false); } }, 300);
+    if (!persistKey) return;
+    const id = setTimeout(() => { setPersist(store.save(persistKey, S)); }, 300);
     return () => clearTimeout(id);
-  }, [S]);
+  }, [S, persistKey]);
   useEffect(() => { window.scrollTo && window.scrollTo(0, 0); }, [route]);
   const go = useCallback((r) => { try { window.location.hash = r; } catch (e) {} setRoute(r); }, []);
   const set = useCallback((fn) => setS((x) => (typeof fn === "function" ? fn(x) : fn)), []);
@@ -91,7 +93,7 @@ function App() {
   }, [S.userSchemes]);
   const pendingValidation = S.catalog.some((c) => !c.archived && c.status !== "verificado") || schemes.some((s) => !s.archived && s.status !== "verificado");
   const patient = S.patients.find((p) => p.code === S.activePatient) || S.patients[0];
-  const resetAll = useCallback(() => { setS(initialState()); try { window.localStorage.removeItem(KEY); } catch (e) {} }, []);
+  const resetAll = useCallback(() => { setS(initialState()); if (persistKey) store.clear(persistKey); }, [persistKey]);
   const exportState = useCallback(() => JSON.stringify({ app: "MieloFarma", engine: ENGINE_VERSION, exported: new Date().toISOString(), state: S }), [S]);
   const importState = useCallback((txt) => {
     try {

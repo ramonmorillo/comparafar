@@ -16,6 +16,7 @@ await db.exec(sql("001_schema.sql")); await db.exec(sql("002_seed_catalog.sql"))
 await db.exec(sql("003_modulos_economicos.sql")); await db.exec(sql("003_modulos_economicos.sql")); // idempotente
 await db.exec(sql("004_anulaciones.sql")); await db.exec(sql("004_anulaciones.sql")); // idempotente
 await db.exec(sql("005_catalogo_acuerdos.sql")); await db.exec(sql("005_catalogo_acuerdos.sql")); // idempotente
+await db.exec(sql("006_realtime_economicos.sql")); await db.exec(sql("006_realtime_economicos.sql")); // idempotente; sin publicación (pglite) no hace nada
 const ids = {};
 for (const n of ["admin", "editor", "lector", "revisor"]) ids[n] = (await db.query("insert into auth.users(email) values ($1) returning id", [n + "@x.es"])).rows[0].id;
 await db.exec("update profiles set role='admin' where email='admin@x.es'; update profiles set role='editor' where email='editor@x.es'; update profiles set role='revisor' where email='revisor@x.es';");
